@@ -1,0 +1,546 @@
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { ArrowLeft, CreditCard, Printer, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar } from 'lucide-react';
+import SummaryApi from '../common';
+import PayDueModal from '../components/bill/PayDueModal';
+
+const BillDetail = () => {
+    const navigate = useNavigate();
+    const { billId } = useParams();
+    const location = useLocation();
+    const printRef = useRef(null);
+
+    const [bill, setBill] = useState(location.state?.bill || null);
+    const [customer, setCustomer] = useState(location.state?.customer || null);
+    const [loading, setLoading] = useState(!bill);
+    const [showPayDue, setShowPayDue] = useState(false);
+
+    // Smart back navigation - go to customer bills or just go back
+    const handleBack = () => {
+        // If we have customer info, navigate to their bills page
+        if (customer?._id) {
+            navigate(`/customer/${customer._id}/bills`, {
+                state: { customer },
+                replace: true
+            });
+        } else if (bill?.customer?._id) {
+            navigate(`/customer/${bill.customer._id}/bills`, {
+                replace: true
+            });
+        } else {
+            // Fallback to customers page
+            navigate('/customers', { replace: true });
+        }
+    };
+
+    // Fetch bill if not passed in state
+    useEffect(() => {
+        if (!bill && billId) {
+            fetchBill();
+        }
+    }, [billId]);
+
+    const fetchBill = async () => {
+        setLoading(true);
+        try {
+            const response = await fetch(`${SummaryApi.getBill.url}/${billId}`, {
+                method: SummaryApi.getBill.method,
+                credentials: 'include'
+            });
+            const data = await response.json();
+            if (data.success) {
+                setBill(data.bill);
+                if (data.bill.customer) {
+                    setCustomer(data.bill.customer);
+                }
+            }
+        } catch (error) {
+            console.error('Fetch bill error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Format date
+    const formatDate = (dateString) => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        });
+    };
+
+    // Format time
+    const formatTime = (dateString) => {
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('en-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+
+    // Format full date time
+    const formatDateTime = (dateString) => {
+        const date = new Date(dateString);
+        return date.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    };
+
+    // Get status info
+    const getStatusInfo = (status) => {
+        switch (status) {
+            case 'paid':
+                return { icon: CheckCircle, bg: 'bg-green-100', text: 'text-green-700', label: 'Paid' };
+            case 'partial':
+                return { icon: Clock, bg: 'bg-orange-100', text: 'text-orange-700', label: 'Partial' };
+            default:
+                return { icon: AlertCircle, bg: 'bg-red-100', text: 'text-red-700', label: 'Pending' };
+        }
+    };
+
+    // Handle payment success
+    const handlePaymentSuccess = (updatedBill) => {
+        setBill(updatedBill);
+    };
+
+    // Handle Print
+    const handlePrint = () => {
+        const printContent = printRef.current;
+        const printWindow = window.open('', '_blank');
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Invoice - ${bill.billNumber}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; color: #333; font-size: 14px; }
+                    .invoice { max-width: 800px; margin: 0 auto; }
+                    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #333; }
+                    .company-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+                    .invoice-title { font-size: 18px; color: #666; }
+                    .info-section { display: flex; justify-content: space-between; margin-bottom: 30px; }
+                    .info-block h4 { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+                    .info-block p { margin: 4px 0; }
+                    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                    .items-table th { background: #f5f5f5; padding: 12px; text-align: left; border-bottom: 2px solid #ddd; font-size: 12px; text-transform: uppercase; }
+                    .items-table td { padding: 12px; border-bottom: 1px solid #eee; }
+                    .items-table .amount { text-align: right; }
+                    .items-table .qty { text-align: center; }
+                    .totals { margin-left: auto; width: 250px; }
+                    .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+                    .totals-row.total { border-top: 2px solid #333; border-bottom: none; font-weight: bold; font-size: 16px; margin-top: 10px; padding-top: 15px; }
+                    .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+                    .status-paid { background: #d1fae5; color: #065f46; }
+                    .status-partial { background: #ffedd5; color: #c2410c; }
+                    .status-pending { background: #fee2e2; color: #dc2626; }
+                    .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; }
+                    .serial { color: #666; font-size: 12px; }
+                </style>
+            </head>
+            <body>
+                <div class="invoice">
+                    <div class="header">
+                        <div class="company-name">Your Business Name</div>
+                        <div class="invoice-title">TAX INVOICE</div>
+                    </div>
+
+                    <div class="info-section">
+                        <div class="info-block">
+                            <h4>Bill To</h4>
+                            <p><strong>${customer?.customerName || 'Customer'}</strong></p>
+                            ${customer?.phoneNumber ? `<p>${customer.phoneNumber}</p>` : ''}
+                        </div>
+                        <div class="info-block" style="text-align: right;">
+                            <h4>Invoice Details</h4>
+                            <p><strong>${bill.billNumber}</strong></p>
+                            <p>${formatDate(bill.createdAt)}</p>
+                            <p><span class="status status-${bill.status}">${bill.status.toUpperCase()}</span></p>
+                        </div>
+                    </div>
+
+                    <table class="items-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Description</th>
+                                <th class="qty">Qty</th>
+                                <th class="amount">Rate</th>
+                                <th class="amount">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bill.items.map((item, index) => `
+                                <tr>
+                                    <td>${index + 1}</td>
+                                    <td>
+                                        ${item.itemName}
+                                        ${item.serialNumber ? `<div class="serial">S/N: ${item.serialNumber}</div>` : ''}
+                                    </td>
+                                    <td class="qty">${item.qty}</td>
+                                    <td class="amount">₹${item.price}</td>
+                                    <td class="amount">₹${item.amount}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+
+                    <div class="totals">
+                        <div class="totals-row">
+                            <span>Subtotal</span>
+                            <span>₹${bill.subtotal}</span>
+                        </div>
+                        ${bill.discount > 0 ? `
+                            <div class="totals-row">
+                                <span>Discount</span>
+                                <span>-₹${bill.discount}</span>
+                            </div>
+                        ` : ''}
+                        <div class="totals-row total">
+                            <span>Total</span>
+                            <span>₹${bill.totalAmount}</span>
+                        </div>
+                        <div class="totals-row">
+                            <span>Paid</span>
+                            <span style="color: green;">₹${bill.receivedPayment}</span>
+                        </div>
+                        ${bill.dueAmount > 0 ? `
+                            <div class="totals-row">
+                                <span>Balance Due</span>
+                                <span style="color: red;">₹${bill.dueAmount}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <div class="footer">
+                        <p>Thank you for your business!</p>
+                    </div>
+                </div>
+                <script>
+                    window.onload = function() {
+                        window.print();
+                        window.onafterprint = function() { window.close(); }
+                    }
+                </script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    };
+
+    // Handle Download (same as print but triggers save)
+    const handleDownload = () => {
+        handlePrint(); // For now, same as print - user can save as PDF from print dialog
+    };
+
+    // Handle Share
+    const handleShare = async () => {
+        const shareText = `
+*INVOICE - ${bill.billNumber}*
+Date: ${formatDate(bill.createdAt)}
+
+Customer: ${customer?.customerName || 'Customer'}
+${customer?.phoneNumber ? `Phone: ${customer.phoneNumber}` : ''}
+
+*Items:*
+${bill.items.map((item, i) => `${i + 1}. ${item.itemName} x${item.qty} = ₹${item.amount}`).join('\n')}
+
+${bill.discount > 0 ? `Discount: -₹${bill.discount}\n` : ''}
+*Total: ₹${bill.totalAmount}*
+Paid: ₹${bill.receivedPayment}
+${bill.dueAmount > 0 ? `*Due: ₹${bill.dueAmount}*` : '✅ Fully Paid'}
+
+Thank you for your business!
+        `.trim();
+
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: `Invoice - ${bill.billNumber}`,
+                    text: shareText
+                });
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    // Fallback to WhatsApp
+                    shareToWhatsApp(shareText);
+                }
+            }
+        } else {
+            shareToWhatsApp(shareText);
+        }
+    };
+
+    const shareToWhatsApp = (text) => {
+        let phone = '';
+        if (customer?.phoneNumber) {
+            phone = customer.phoneNumber.replace(/\D/g, '');
+            if (!phone.startsWith('91') && phone.length === 10) {
+                phone = '91' + phone;
+            }
+        }
+        const url = phone
+            ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+            : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(url, '_blank');
+    };
+
+    if (loading) {
+        return (
+            <div className="py-4 flex items-center justify-center min-h-[60vh]">
+                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    if (!bill) {
+        return (
+            <div className="py-4 text-center">
+                <p className="text-gray-500">Bill not found</p>
+            </div>
+        );
+    }
+
+    const statusInfo = getStatusInfo(bill.status);
+    const StatusIcon = statusInfo.icon;
+
+    return (
+        <div className="py-4 pb-40">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4">
+                <button
+                    onClick={handleBack}
+                    className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100"
+                >
+                    <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="flex-1">
+                    <h1 className="text-xl font-bold text-gray-800">Invoice</h1>
+                    <p className="text-gray-500 text-sm">{bill.billNumber}</p>
+                </div>
+                <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${statusInfo.bg}`}>
+                    <StatusIcon className={`w-4 h-4 ${statusInfo.text}`} />
+                    <span className={`text-sm font-medium ${statusInfo.text}`}>{statusInfo.label}</span>
+                </div>
+            </div>
+
+            {/* Invoice Card */}
+            <div ref={printRef} className="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
+                {/* Invoice Header */}
+                <div className="bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-primary-100 text-xs uppercase tracking-wide">Invoice Amount</p>
+                            <p className="text-3xl font-bold mt-1">₹{bill.totalAmount}</p>
+                        </div>
+                        <div className="text-right">
+                            <div className="flex items-center gap-1 text-primary-100">
+                                <Calendar className="w-4 h-4" />
+                                <span className="text-sm">{formatDate(bill.createdAt)}</span>
+                            </div>
+                            <p className="text-xs text-primary-200 mt-1">{formatTime(bill.createdAt)}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Customer Info */}
+                <div className="p-4 border-b border-gray-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Bill To</p>
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                            <User className="w-5 h-5 text-gray-500" />
+                        </div>
+                        <div>
+                            <p className="font-semibold text-gray-800">{customer?.customerName || 'Customer'}</p>
+                            {customer?.phoneNumber && (
+                                <p className="text-sm text-gray-500 flex items-center gap-1">
+                                    <Phone className="w-3 h-3" />
+                                    {customer.phoneNumber}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Items */}
+                <div className="p-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Items</p>
+                    <div className="space-y-3">
+                        {bill.items.map((item, index) => (
+                            <div key={index} className="flex items-start justify-between">
+                                <div className="flex-1">
+                                    <p className="font-medium text-gray-800">{item.itemName}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                                            {item.itemType === 'service' ? 'Service' : item.itemType === 'serialized' ? 'Serialized' : 'Generic'}
+                                        </span>
+                                        {item.serialNumber && (
+                                            <span className="text-xs text-gray-500">S/N: {item.serialNumber}</span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-semibold text-gray-800">₹{item.amount}</p>
+                                    <p className="text-xs text-gray-500">{item.qty} × ₹{item.price}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Totals */}
+                <div className="bg-gray-50 p-4">
+                    <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Subtotal</span>
+                            <span className="text-gray-800">₹{bill.subtotal}</span>
+                        </div>
+                        {bill.discount > 0 && (
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">Discount</span>
+                                <span className="text-green-600">-₹{bill.discount}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between font-semibold text-lg pt-2 border-t border-gray-200">
+                            <span className="text-gray-800">Total</span>
+                            <span className="text-gray-800">₹{bill.totalAmount}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Paid</span>
+                            <span className="text-green-600">₹{bill.receivedPayment}</span>
+                        </div>
+                        {bill.dueAmount > 0 && (
+                            <div className="flex justify-between font-semibold">
+                                <span className="text-red-600">Due</span>
+                                <span className="text-red-600">₹{bill.dueAmount}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Payment History */}
+            {bill.paymentHistory && bill.paymentHistory.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Payment History</p>
+                    <div className="space-y-3">
+                        {bill.paymentHistory.map((payment, index) => {
+                            // Parse payment note to extract method and remark
+                            const isUPI = payment.note?.startsWith('[UPI]');
+                            const isCash = payment.note?.startsWith('[Cash]');
+                            let remark = '';
+                            let txnId = '';
+
+                            if (isUPI && payment.note) {
+                                const withoutPrefix = payment.note.replace('[UPI] ', '');
+                                if (withoutPrefix.includes(' | ')) {
+                                    const parts = withoutPrefix.split(' | ');
+                                    txnId = parts[0];
+                                    remark = parts[1];
+                                } else {
+                                    txnId = withoutPrefix;
+                                }
+                            } else if (isCash && payment.note) {
+                                remark = payment.note.replace('[Cash]', '').trim();
+                            } else if (payment.note) {
+                                remark = payment.note;
+                            }
+
+                            return (
+                                <div key={index} className="py-3 border-b border-gray-100 last:border-0">
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <p className="text-sm text-gray-800 font-medium">{formatDateTime(payment.paidAt)}</p>
+                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                                                    isUPI
+                                                        ? 'bg-purple-100 text-purple-700'
+                                                        : 'bg-green-100 text-green-700'
+                                                }`}>
+                                                    {isUPI ? 'UPI' : 'Cash'}
+                                                </span>
+                                                {txnId && (
+                                                    <span className="text-xs text-gray-500">{txnId}</span>
+                                                )}
+                                            </div>
+                                            {remark && (
+                                                <p className="text-xs text-gray-500 mt-1">{remark}</p>
+                                            )}
+                                        </div>
+                                        <p className="font-semibold text-green-600 ml-3">+₹{payment.amount}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Action Buttons - Fixed at bottom */}
+            <div className="fixed bottom-[70px] left-0 right-0 bg-white border-t border-gray-200 p-4 z-20">
+                <div className="grid grid-cols-4 gap-2 max-w-lg mx-auto">
+                    {/* Pay Due */}
+                    {bill.dueAmount > 0 ? (
+                        <button
+                            onClick={() => setShowPayDue(true)}
+                            className="flex flex-col items-center gap-1 py-3 bg-primary-50 rounded-xl hover:bg-primary-100 transition-colors"
+                        >
+                            <CreditCard className="w-6 h-6 text-primary-600" />
+                            <span className="text-xs font-medium text-primary-700">Pay Due</span>
+                        </button>
+                    ) : (
+                        <div className="flex flex-col items-center gap-1 py-3 bg-green-50 rounded-xl">
+                            <CheckCircle className="w-6 h-6 text-green-600" />
+                            <span className="text-xs font-medium text-green-700">Paid</span>
+                        </div>
+                    )}
+
+                    {/* Print */}
+                    <button
+                        onClick={handlePrint}
+                        className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                    >
+                        <Printer className="w-6 h-6 text-gray-600" />
+                        <span className="text-xs font-medium text-gray-700">Print</span>
+                    </button>
+
+                    {/* Download */}
+                    <button
+                        onClick={handleDownload}
+                        className="flex flex-col items-center gap-1 py-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+                    >
+                        <Download className="w-6 h-6 text-blue-600" />
+                        <span className="text-xs font-medium text-blue-700">Download</span>
+                    </button>
+
+                    {/* Share */}
+                    <button
+                        onClick={handleShare}
+                        className="flex flex-col items-center gap-1 py-3 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
+                    >
+                        <Share2 className="w-6 h-6 text-green-600" />
+                        <span className="text-xs font-medium text-green-700">Share</span>
+                    </button>
+                </div>
+            </div>
+
+            {/* Pay Due Modal */}
+            <PayDueModal
+                isOpen={showPayDue}
+                onClose={() => setShowPayDue(false)}
+                bill={bill}
+                onSuccess={handlePaymentSuccess}
+            />
+        </div>
+    );
+};
+
+export default BillDetail;
