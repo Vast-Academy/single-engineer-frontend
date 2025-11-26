@@ -14,14 +14,7 @@ const WORK_ORDER_TYPES = [
     'Custom'
 ];
 
-const TIME_SLOTS = [
-    '09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM',
-    '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM',
-    '01:00 PM', '01:30 PM', '02:00 PM', '02:30 PM',
-    '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM',
-    '05:00 PM', '05:30 PM', '06:00 PM', '06:30 PM',
-    '07:00 PM', '07:30 PM', '08:00 PM'
-];
+// Removed TIME_SLOTS - user can now enter custom time
 
 const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess }) => {
     const [step, setStep] = useState(1); // 1: Customer, 2: Type, 3: Schedule, 4: Confirm
@@ -49,13 +42,32 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
         return today.toISOString().split('T')[0];
     };
 
+    // Get current time in HH:MM format
+    const getCurrentTime = () => {
+        const now = new Date();
+        const hours = now.getHours().toString().padStart(2, '0');
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        return `${hours}:${minutes}`;
+    };
+
+    // Convert 24-hour time to 12-hour format with AM/PM
+    const formatTimeForDisplay = (time24) => {
+        if (!time24) return '';
+        const [hours, minutes] = time24.split(':');
+        const hour = parseInt(hours);
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const hour12 = hour % 12 || 12;
+        return `${hour12}:${minutes} ${ampm}`;
+    };
+
     // Reset form
     const resetForm = () => {
         setStep(preSelectedCustomer ? 2 : 1);
         setSelectedCustomer(preSelectedCustomer || null);
         setWorkOrderType('');
-        setScheduleDate('');
-        setScheduleTime('');
+        // Set default date to today and time to current time
+        setScheduleDate(getTodayDate());
+        setScheduleTime(getCurrentTime());
         setRemark('');
         setSearchQuery('');
         setCustomers([]);
@@ -177,6 +189,9 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
 
         setLoading(true);
         try {
+            // Convert 24-hour time to 12-hour format for backend
+            const formattedTime = formatTimeForDisplay(scheduleTime);
+
             const response = await fetch(SummaryApi.createWorkOrder.url, {
                 method: SummaryApi.createWorkOrder.method,
                 headers: {
@@ -187,7 +202,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                     customerId: selectedCustomer._id,
                     workOrderType,
                     scheduleDate,
-                    scheduleTime,
+                    scheduleTime: formattedTime,
                     remark: remark.trim()
                 })
             });
@@ -429,21 +444,17 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                     <Clock className="w-4 h-4 inline mr-1" />
                                     Schedule Time *
                                 </label>
-                                <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto">
-                                    {TIME_SLOTS.map(time => (
-                                        <button
-                                            key={time}
-                                            onClick={() => setScheduleTime(time)}
-                                            className={`py-2 px-2 text-xs rounded-lg font-medium transition-colors ${
-                                                scheduleTime === time
-                                                    ? 'bg-primary-500 text-white'
-                                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                        >
-                                            {time}
-                                        </button>
-                                    ))}
-                                </div>
+                                <input
+                                    type="time"
+                                    value={scheduleTime}
+                                    onChange={(e) => setScheduleTime(e.target.value)}
+                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                                />
+                                {scheduleTime && (
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Selected: {formatTimeForDisplay(scheduleTime)}
+                                    </p>
+                                )}
                             </div>
 
                             {/* Remark */}
@@ -481,7 +492,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                 <div className="border-t pt-4">
                                     <p className="text-xs text-gray-500 uppercase">Scheduled</p>
                                     <p className="font-semibold text-gray-800">{formatDate(scheduleDate)}</p>
-                                    <p className="text-sm text-primary-600">{scheduleTime}</p>
+                                    <p className="text-sm text-primary-600">{formatTimeForDisplay(scheduleTime)}</p>
                                 </div>
 
                                 {remark && (
