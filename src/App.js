@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Inventory from './pages/Inventory';
 import Workorders from './pages/Workorders';
 import Customers from './pages/Customers';
+import CustomerDetail from './pages/CustomerDetail';
 import Settings from './pages/Settings';
 import BankAccounts from './pages/BankAccounts';
 import CustomerBills from './pages/CustomerBills';
@@ -62,6 +63,26 @@ function App() {
                         }
                     />
                     <Route
+                        path="/customer/:customerId"
+                        element={
+                            <ProtectedRoute>
+                                <Layout>
+                                    <CustomerDetail />
+                                </Layout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/customer/:customerId/bills"
+                        element={
+                            <ProtectedRoute>
+                                <Layout>
+                                    <CustomerBills />
+                                </Layout>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
                         path="/settings"
                         element={
                             <ProtectedRoute>
@@ -77,16 +98,6 @@ function App() {
                             <ProtectedRoute>
                                 <Layout>
                                     <BankAccounts />
-                                </Layout>
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route
-                        path="/customer/:customerId/bills"
-                        element={
-                            <ProtectedRoute>
-                                <Layout>
-                                    <CustomerBills />
                                 </Layout>
                             </ProtectedRoute>
                         }

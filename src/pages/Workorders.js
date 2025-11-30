@@ -161,7 +161,7 @@ const Workorders = () => {
             {/* Floating Action Button */}
             <button
                 onClick={() => setShowCreateModal(true)}
-                className="fixed bottom-24 right-4 w-14 h-14 bg-primary-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-primary-600 transition-colors z-30"
+                className="fixed bottom-24 right-4 w-14 h-14 bg-orange-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-orange-600 transition-colors z-30"
             >
                 <Plus className="w-6 h-6" />
             </button>

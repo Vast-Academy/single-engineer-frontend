@@ -1,10 +1,10 @@
-import { Phone, MapPin, MessageCircle } from 'lucide-react';
+import { Phone, MapPin, MessageCircle, ChevronRight } from 'lucide-react';
 
 const CustomerCard = ({ customer, onClick }) => {
     return (
         <div
             onClick={() => onClick(customer)}
-            className="bg-white rounded-xl p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
         >
             <div className="flex items-start gap-3">
                 {/* Avatar */}
@@ -38,12 +38,8 @@ const CustomerCard = ({ customer, onClick }) => {
                     )}
                 </div>
 
-                {/* Arrow */}
-                <div className="flex items-center text-gray-400">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                </div>
+                {/* Chevron */}
+                <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
             </div>
         </div>
     );

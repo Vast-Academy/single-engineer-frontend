@@ -200,7 +200,7 @@ const Inventory = () => {
                     onClick={() => setActiveTab('services')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
                         activeTab === 'services'
-                            ? 'bg-white text-primary-600 shadow-sm'
+                            ? 'bg-white text-purple-600 shadow-sm'
                             : 'text-gray-600'
                     }`}
                 >
@@ -268,7 +268,11 @@ const Inventory = () => {
             {/* Floating Action Button */}
             <button
                 onClick={activeTab === 'products' ? handleAddItem : handleAddService}
-                className="fixed bottom-24 right-4 w-14 h-14 bg-primary-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-primary-600 transition-colors z-40"
+                className={`fixed bottom-24 right-4 w-14 h-14 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40 ${
+                    activeTab === 'services'
+                        ? 'bg-purple-500 hover:bg-purple-600'
+                        : 'bg-primary-500 hover:bg-primary-600'
+                }`}
             >
                 <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

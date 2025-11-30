@@ -1,23 +1,18 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
 import SummaryApi from '../common';
 import CustomerCard from '../components/customer/CustomerCard';
 import AddCustomerModal from '../components/customer/AddCustomerModal';
-import EditCustomerModal from '../components/customer/EditCustomerModal';
-import CreateBillModal from '../components/bill/CreateBillModal';
-import CreateWorkOrderModal from '../components/workorder/CreateWorkOrderModal';
 
 const Customers = () => {
+    const navigate = useNavigate();
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Modal states
+    // Modal state
     const [showAddModal, setShowAddModal] = useState(false);
-    const [showEditModal, setShowEditModal] = useState(false);
-    const [showBillModal, setShowBillModal] = useState(false);
-    const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
-    const [selectedCustomer, setSelectedCustomer] = useState(null);
 
     // Fetch customers on mount
     useEffect(() => {
@@ -41,64 +36,16 @@ const Customers = () => {
         }
     };
 
-    // Handle customer click
+    // Handle customer click - navigate to detail page
     const handleCustomerClick = (customer) => {
-        setSelectedCustomer(customer);
-        setShowEditModal(true);
+        navigate(`/customer/${customer._id}`, {
+            state: { customer }
+        });
     };
 
     // Handle add success
     const handleAddSuccess = (customer) => {
         setCustomers([customer, ...customers]);
-    };
-
-    // Handle update success
-    const handleUpdateSuccess = (updatedCustomer) => {
-        setCustomers(customers.map(c =>
-            c._id === updatedCustomer._id ? updatedCustomer : c
-        ));
-    };
-
-    // Handle delete
-    const handleDelete = async (customer) => {
-        try {
-            const response = await fetch(`${SummaryApi.deleteCustomer.url}/${customer._id}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                setCustomers(customers.filter(c => c._id !== customer._id));
-            } else {
-                alert(data.message || 'Failed to delete customer');
-            }
-        } catch (error) {
-            console.error('Delete customer error:', error);
-            alert('Failed to delete customer');
-        }
-    };
-
-    // Handle create bill
-    const handleCreateBill = (customer) => {
-        setSelectedCustomer(customer);
-        setShowBillModal(true);
-    };
-
-    // Handle bill creation success
-    const handleBillSuccess = (bill) => {
-        console.log('Bill created:', bill);
-        // Optionally refresh data or show notification
-    };
-
-    // Handle create workorder
-    const handleCreateWorkorder = (customer) => {
-        setSelectedCustomer(customer);
-        setShowWorkOrderModal(true);
-    };
-
-    // Handle workorder creation success
-    const handleWorkOrderSuccess = (workOrder) => {
-        console.log('Work order created:', workOrder);
     };
 
     // Filter customers by search
@@ -172,35 +119,11 @@ const Customers = () => {
                 <UserPlus className="w-6 h-6" />
             </button>
 
-            {/* Modals */}
+            {/* Add Customer Modal */}
             <AddCustomerModal
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
                 onSuccess={handleAddSuccess}
-            />
-
-            <EditCustomerModal
-                isOpen={showEditModal}
-                onClose={() => setShowEditModal(false)}
-                customer={selectedCustomer}
-                onSuccess={handleUpdateSuccess}
-                onDelete={handleDelete}
-                onCreateBill={handleCreateBill}
-                onCreateWorkorder={handleCreateWorkorder}
-            />
-
-            <CreateBillModal
-                isOpen={showBillModal}
-                onClose={() => setShowBillModal(false)}
-                customer={selectedCustomer}
-                onSuccess={handleBillSuccess}
-            />
-
-            <CreateWorkOrderModal
-                isOpen={showWorkOrderModal}
-                onClose={() => setShowWorkOrderModal(false)}
-                preSelectedCustomer={selectedCustomer}
-                onSuccess={handleWorkOrderSuccess}
             />
         </div>
     );

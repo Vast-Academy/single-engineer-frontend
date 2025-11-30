@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const { loginWithGoogle, user } = useAuth();
+    const { loginWithGoogle, user, loading } = useAuth();
     const navigate = useNavigate();
 
     // Redirect if already logged in
@@ -14,6 +14,18 @@ const Login = () => {
             navigate('/dashboard');
         }
     }, [user, navigate]);
+
+    // Show loading spinner while checking authentication
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 via-primary-500 to-blue-400">
+                <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-white text-lg font-medium">Loading...</p>
+                </div>
+            </div>
+        );
+    }
 
     const handleGoogleLogin = async () => {
         setIsLoading(true);

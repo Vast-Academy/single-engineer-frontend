@@ -36,21 +36,6 @@ const WorkOrderCard = ({ workOrder, onClick }) => {
         return scheduleDate < now;
     };
 
-    // Get type color
-    const getTypeColor = (type) => {
-        const colors = {
-            'CCTV Camera': 'bg-blue-100 text-blue-700',
-            'Attendance System': 'bg-purple-100 text-purple-700',
-            'Safe and Locks': 'bg-amber-100 text-amber-700',
-            'Lift & Elevator Solutions': 'bg-cyan-100 text-cyan-700',
-            'Home/Office Automation': 'bg-green-100 text-green-700',
-            'IT & Networking Services': 'bg-indigo-100 text-indigo-700',
-            'Software & Website Development': 'bg-pink-100 text-pink-700',
-            'Custom': 'bg-gray-100 text-gray-700'
-        };
-        return colors[type] || 'bg-gray-100 text-gray-700';
-    };
-
     const overdue = isOverdue();
 
     return (
@@ -63,13 +48,17 @@ const WorkOrderCard = ({ workOrder, onClick }) => {
             {/* Header */}
             <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="text-sm font-semibold text-gray-800">
                             {workOrder.workOrderNumber}
                         </span>
-                        {workOrder.status === 'completed' && (
+                        {workOrder.status === 'completed' ? (
                             <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
                                 Completed
+                            </span>
+                        ) : (
+                            <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded-full font-medium">
+                                Pending
                             </span>
                         )}
                         {overdue && (
@@ -78,9 +67,12 @@ const WorkOrderCard = ({ workOrder, onClick }) => {
                             </span>
                         )}
                     </div>
-                    <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-medium ${getTypeColor(workOrder.workOrderType)}`}>
-                        {workOrder.workOrderType}
-                    </span>
+                    {/* Work Note */}
+                    {workOrder.note && (
+                        <p className="text-sm text-gray-700 line-clamp-2">
+                            {workOrder.note}
+                        </p>
+                    )}
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400" />
             </div>
@@ -101,20 +93,16 @@ const WorkOrderCard = ({ workOrder, onClick }) => {
                         {formatDate(workOrder.scheduleDate)}
                     </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    <Clock className={`w-4 h-4 ${overdue ? 'text-red-500' : 'text-gray-400'}`} />
-                    <span className={`text-sm ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                        {workOrder.scheduleTime}
-                    </span>
-                </div>
+                {/* Show time only if hasScheduledTime is true */}
+                {workOrder.hasScheduledTime && workOrder.scheduleTime && (
+                    <div className="flex items-center gap-1.5">
+                        <Clock className={`w-4 h-4 ${overdue ? 'text-red-500' : 'text-gray-400'}`} />
+                        <span className={`text-sm ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                            {workOrder.scheduleTime}
+                        </span>
+                    </div>
+                )}
             </div>
-
-            {/* Remark Preview */}
-            {workOrder.remark && (
-                <p className="mt-2 text-xs text-gray-500 line-clamp-1">
-                    {workOrder.remark}
-                </p>
-            )}
         </div>
     );
 };

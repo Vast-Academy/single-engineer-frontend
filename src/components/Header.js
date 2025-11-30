@@ -11,7 +11,7 @@ const Header = () => {
                     <div className="w-9 h-9 bg-gradient-to-br from-primary-500 to-blue-400 rounded-xl flex items-center justify-center">
                         <span className="text-lg">🛠️</span>
                     </div>
-                    <h1 className="text-lg font-bold text-gray-800">Engineer App</h1>
+                    {/* <h1 className="text-lg font-bold text-gray-800">Engineer App</h1> */}
                 </div>
 
                 {/* User Avatar */}

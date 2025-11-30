@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ClipboardList } from 'lucide-react';
 
 const BillCard = ({ bill, onClick }) => {
     // Format date
@@ -44,11 +44,17 @@ const BillCard = ({ bill, onClick }) => {
                 {/* Left Side */}
                 <div className="flex-1">
                     {/* Bill Number & Status */}
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="font-semibold text-gray-800">{bill.billNumber}</span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyles.bg} ${statusStyles.text}`}>
                             {statusStyles.label}
                         </span>
+                        {bill.workOrderId && (
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium flex items-center gap-1">
+                                <ClipboardList className="w-3 h-3" />
+                                Work Order
+                            </span>
+                        )}
                     </div>
 
                     {/* Date & Time */}

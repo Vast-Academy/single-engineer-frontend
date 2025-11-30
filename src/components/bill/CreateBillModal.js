@@ -15,7 +15,7 @@ const STEPS = {
     SUCCESS: 5
 };
 
-const CreateBillModal = ({ isOpen, onClose, customer, onSuccess }) => {
+const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) => {
     const [currentStep, setCurrentStep] = useState(STEPS.ITEM_SELECTION);
     const [loading, setLoading] = useState(false);
 
@@ -198,7 +198,8 @@ const CreateBillModal = ({ isOpen, onClose, customer, onSuccess }) => {
                     items: billItems,
                     discount,
                     receivedPayment: cashReceived,
-                    paymentMethod
+                    paymentMethod,
+                    workOrderId: workOrderId || null
                 })
             });
 

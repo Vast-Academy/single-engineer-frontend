@@ -158,6 +158,10 @@ const SummaryApi = {
         url: `${backendDomain}/api/workorder`,
         method: "get"
     },
+    updateWorkOrder: {
+        url: `${backendDomain}/api/workorder`,
+        method: "put"
+    },
     markWorkOrderComplete: {
         url: `${backendDomain}/api/workorder`,
         method: "put"
@@ -170,6 +174,10 @@ const SummaryApi = {
         url: `${backendDomain}/api/workorders/customer`,
         method: "get"
     },
+    linkWorkOrderBill: {
+        url: `${backendDomain}/api/workorder/link-bill`,
+        method: "put"
+    },
 
     // ==================== NOTIFICATIONS ====================
     registerFcmToken: {
@@ -179,6 +187,12 @@ const SummaryApi = {
     removeFcmToken: {
         url: `${backendDomain}/api/notification/remove-token`,
         method: "post"
+    },
+
+    // ==================== DASHBOARD ====================
+    getDashboardMetrics: {
+        url: `${backendDomain}/api/dashboard/metrics`,
+        method: "get"
     }
 }
 

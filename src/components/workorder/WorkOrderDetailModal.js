@@ -1,21 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Calendar, Clock, User, Phone, MapPin, FileText, CheckCircle, Trash2 } from 'lucide-react';
+import { X, Calendar, Clock, User, Phone, MapPin, FileText, CheckCircle, Trash2, Receipt } from 'lucide-react';
 import SummaryApi from '../../common';
+import CreateBillModal from '../bill/CreateBillModal';
 
 const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }) => {
     const [loading, setLoading] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showBillModal, setShowBillModal] = useState(false);
+    const [isEditMode, setIsEditMode] = useState(false);
+
+    // Edit form state
+    const [editData, setEditData] = useState({
+        note: '',
+        scheduleDate: '',
+        hasScheduledTime: false,
+        scheduleTime: ''
+    });
+
+    // Populate edit data when work order changes
+    useEffect(() => {
+        if (workOrder && isOpen) {
+            setEditData({
+                note: workOrder.note || '',
+                scheduleDate: workOrder.scheduleDate ? new Date(workOrder.scheduleDate).toISOString().split('T')[0] : '',
+                hasScheduledTime: workOrder.hasScheduledTime || false,
+                scheduleTime: workOrder.scheduleTime || ''
+            });
+            setIsEditMode(false);
+        }
+    }, [workOrder, isOpen]);
 
     // Handle ESC key
     const handleEscKey = useCallback((e) => {
         if (e.key === 'Escape') {
             if (showDeleteConfirm) {
                 setShowDeleteConfirm(false);
+            } else if (isEditMode) {
+                setIsEditMode(false);
             } else {
                 onClose();
             }
         }
-    }, [onClose, showDeleteConfirm]);
+    }, [onClose, showDeleteConfirm, isEditMode]);
 
     useEffect(() => {
         if (isOpen) {
@@ -71,34 +97,6 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         return scheduleDate < now;
     };
 
-    // Mark as completed
-    const handleMarkComplete = async () => {
-        if (!workOrder) return;
-
-        setLoading(true);
-        try {
-            const response = await fetch(`${SummaryApi.markWorkOrderComplete.url}/${workOrder._id}/complete`, {
-                method: 'PUT',
-                credentials: 'include'
-            });
-
-            const data = await response.json();
-            if (data.success) {
-                if (onUpdate) {
-                    onUpdate(data.workOrder);
-                }
-                onClose();
-            } else {
-                alert(data.message || 'Failed to update work order');
-            }
-        } catch (error) {
-            console.error('Mark complete error:', error);
-            alert('Failed to update work order');
-        } finally {
-            setLoading(false);
-        }
-    };
-
     // Delete work order
     const handleDelete = async () => {
         if (!workOrder) return;
@@ -127,6 +125,54 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         }
     };
 
+    // Save edited work order
+    const handleSaveEdit = async () => {
+        if (!workOrder) return;
+
+        // Validate
+        if (!editData.note.trim()) {
+            alert('Work note is required');
+            return;
+        }
+
+        if (!editData.scheduleDate) {
+            alert('Schedule date is required');
+            return;
+        }
+
+        if (editData.hasScheduledTime && !editData.scheduleTime) {
+            alert('Schedule time is required when time is enabled');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await fetch(`${SummaryApi.updateWorkOrder.url}/${workOrder._id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include',
+                body: JSON.stringify(editData)
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                if (onUpdate) {
+                    onUpdate(data.workOrder);
+                }
+                setIsEditMode(false);
+            } else {
+                alert(data.message || 'Failed to update work order');
+            }
+        } catch (error) {
+            console.error('Update error:', error);
+            alert('Failed to update work order');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Call customer
     const handleCall = () => {
         if (workOrder?.customer?.phoneNumber) {
@@ -150,7 +196,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[calc(100vh-80px)] sm:max-h-[85vh] overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className={`p-4 ${
                     workOrder.status === 'completed'
@@ -160,7 +206,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             : 'bg-gradient-to-r from-primary-500 to-primary-600'
                 }`}>
                     <div className="flex items-center justify-between mb-3">
-                        <span className="text-white/80 text-sm font-medium">Work Order</span>
+                        <span className="text-white/80 text-sm font-medium">Work Order Details</span>
                         <button
                             onClick={onClose}
                             className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30"
@@ -168,18 +214,20 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             <X className="w-5 h-5 text-white" />
                         </button>
                     </div>
-                    <h2 className="text-xl font-bold text-white mb-1">{workOrder.workOrderNumber}</h2>
+                    <h2 className="text-xl font-bold text-white mb-2">{workOrder.workOrderNumber}</h2>
                     <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 bg-white/20 text-white text-xs rounded-full font-medium">
-                            {workOrder.workOrderType}
-                        </span>
-                        {workOrder.status === 'completed' && (
-                            <span className="px-2 py-0.5 bg-white/30 text-white text-xs rounded-full font-medium">
+                        {workOrder.status === 'completed' ? (
+                            <span className="px-3 py-1 bg-white/30 text-white text-xs rounded-full font-medium flex items-center gap-1">
+                                <CheckCircle className="w-3.5 h-3.5" />
                                 Completed
+                            </span>
+                        ) : (
+                            <span className="px-3 py-1 bg-white/30 text-white text-xs rounded-full font-medium">
+                                Pending
                             </span>
                         )}
                         {overdue && (
-                            <span className="px-2 py-0.5 bg-white/30 text-white text-xs rounded-full font-medium">
+                            <span className="px-3 py-1 bg-white/30 text-white text-xs rounded-full font-medium">
                                 Overdue
                             </span>
                         )}
@@ -187,7 +235,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 overflow-y-auto p-4 min-h-0">
                     {/* Customer Info */}
                     <div className="bg-gray-50 rounded-xl p-4 mb-4">
                         <div className="flex items-start justify-between">
@@ -215,56 +263,112 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                         )}
                     </div>
 
-                    {/* Schedule Info */}
-                    <div className="mb-4">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Schedule</p>
-                        <div className="bg-gray-50 rounded-xl p-4">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className={`w-10 h-10 ${overdue ? 'bg-red-100' : 'bg-blue-100'} rounded-full flex items-center justify-center`}>
-                                    <Calendar className={`w-5 h-5 ${overdue ? 'text-red-600' : 'text-blue-600'}`} />
-                                </div>
-                                <div>
-                                    <p className={`font-semibold ${overdue ? 'text-red-700' : 'text-gray-800'}`}>
-                                        {formatDate(workOrder.scheduleDate)}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className={`w-10 h-10 ${overdue ? 'bg-red-100' : 'bg-amber-100'} rounded-full flex items-center justify-center`}>
-                                    <Clock className={`w-5 h-5 ${overdue ? 'text-red-600' : 'text-amber-600'}`} />
-                                </div>
-                                <div>
-                                    <p className={`font-semibold ${overdue ? 'text-red-700' : 'text-gray-800'}`}>
-                                        {workOrder.scheduleTime}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Remark */}
-                    {workOrder.remark && (
+                    {/* Work Note */}
+                    {workOrder.note && (
                         <div className="mb-4">
-                            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Remark</p>
-                            <div className="bg-gray-50 rounded-xl p-4">
-                                <div className="flex items-start gap-2">
-                                    <FileText className="w-4 h-4 text-gray-400 mt-0.5" />
-                                    <p className="text-sm text-gray-700">{workOrder.remark}</p>
+                            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Work Note</p>
+                            {isEditMode ? (
+                                <textarea
+                                    value={editData.note}
+                                    onChange={(e) => setEditData({...editData, note: e.target.value})}
+                                    rows={3}
+                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                                    placeholder="e.g., CCTV Camera Installation..."
+                                />
+                            ) : (
+                                <div className="bg-gray-50 rounded-xl p-4">
+                                    <div className="flex items-start gap-2">
+                                        <FileText className="w-4 h-4 text-gray-400 mt-0.5" />
+                                        <p className="text-sm text-gray-700">{workOrder.note}</p>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
 
+                    {/* Schedule Info */}
+                    <div className="mb-4">
+                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Schedule</p>
+                        {isEditMode ? (
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Schedule Date *
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={editData.scheduleDate}
+                                        onChange={(e) => setEditData({...editData, scheduleDate: e.target.value})}
+                                        className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="flex items-center gap-2 mb-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={editData.hasScheduledTime}
+                                            onChange={(e) => setEditData({...editData, hasScheduledTime: e.target.checked, scheduleTime: e.target.checked ? editData.scheduleTime : ''})}
+                                            className="w-4 h-4 text-primary-500 rounded"
+                                        />
+                                        <span className="text-sm font-medium text-gray-700">Set specific time</span>
+                                    </label>
+                                    {editData.hasScheduledTime && (
+                                        <input
+                                            type="time"
+                                            value={editData.scheduleTime}
+                                            onChange={(e) => setEditData({...editData, scheduleTime: e.target.value})}
+                                            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-gray-50 rounded-xl p-4">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className={`w-10 h-10 ${overdue ? 'bg-red-100' : 'bg-blue-100'} rounded-full flex items-center justify-center`}>
+                                        <Calendar className={`w-5 h-5 ${overdue ? 'text-red-600' : 'text-blue-600'}`} />
+                                    </div>
+                                    <div>
+                                        <p className={`font-semibold ${overdue ? 'text-red-700' : 'text-gray-800'}`}>
+                                            {formatDate(workOrder.scheduleDate)}
+                                        </p>
+                                    </div>
+                                </div>
+                                {workOrder.hasScheduledTime && workOrder.scheduleTime ? (
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 ${overdue ? 'bg-red-100' : 'bg-amber-100'} rounded-full flex items-center justify-center`}>
+                                            <Clock className={`w-5 h-5 ${overdue ? 'text-red-600' : 'text-amber-600'}`} />
+                                        </div>
+                                        <div>
+                                            <p className={`font-semibold ${overdue ? 'text-red-700' : 'text-gray-800'}`}>
+                                                {workOrder.scheduleTime}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-500 italic mt-2">No specific time set</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Completed Info */}
-                    {workOrder.status === 'completed' && workOrder.completedAt && (
+                    {workOrder.status === 'completed' && (
                         <div className="mb-4">
-                            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Completed</p>
-                            <div className="bg-green-50 rounded-xl p-4">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle className="w-5 h-5 text-green-600" />
-                                    <p className="text-sm text-green-700 font-medium">
-                                        Completed on {formatShortDate(workOrder.completedAt)}
-                                    </p>
+                            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2 font-medium">Status</p>
+                            <div className="bg-gradient-to-r from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                        <CheckCircle className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-green-800">Work Order Completed</p>
+                                        {workOrder.completedAt && (
+                                            <p className="text-xs text-green-600 mt-0.5">
+                                                {formatShortDate(workOrder.completedAt)}
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -301,20 +405,71 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                     )}
                 </div>
 
-                {/* Footer - Mark Complete */}
+                {/* Footer - Actions */}
                 {workOrder.status === 'pending' && (
-                    <div className="p-4 border-t flex-shrink-0">
-                        <button
-                            onClick={handleMarkComplete}
-                            disabled={loading}
-                            className="w-full py-3 bg-green-500 text-white font-medium rounded-xl hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            <CheckCircle className="w-5 h-5" />
-                            {loading ? 'Updating...' : 'Mark as Completed'}
-                        </button>
+                    <div className="p-4 border-t flex-shrink-0 bg-gray-50">
+                        {isEditMode ? (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setIsEditMode(false)}
+                                    className="flex-1 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSaveEdit}
+                                    disabled={loading}
+                                    className="flex-1 py-3 bg-primary-500 text-white font-semibold rounded-xl hover:bg-primary-600 disabled:opacity-50"
+                                >
+                                    {loading ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setIsEditMode(true)}
+                                        className="flex-1 py-3 bg-gray-200 text-gray-800 font-medium rounded-xl hover:bg-gray-300"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        onClick={() => setShowBillModal(true)}
+                                        className="flex-1 py-3 bg-gradient-to-r from-primary-500 to-primary-600 text-white font-semibold rounded-xl hover:from-primary-600 hover:to-primary-700 flex items-center justify-center gap-2 shadow-sm"
+                                    >
+                                        <Receipt className="w-5 h-5" />
+                                        Generate Bill
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 text-center">Work order will be marked as completed after bill generation</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
+
+            {/* Create Bill Modal */}
+            {showBillModal && workOrder && (
+                <CreateBillModal
+                    isOpen={showBillModal}
+                    onClose={() => setShowBillModal(false)}
+                    customer={workOrder.customer}
+                    workOrderId={workOrder._id}
+                    onSuccess={(bill) => {
+                        // Bill created successfully, work order auto-completed in backend
+                        if (onUpdate) {
+                            onUpdate({
+                                ...workOrder,
+                                status: 'completed',
+                                billId: bill._id,
+                                completedAt: new Date()
+                            });
+                        }
+                        setShowBillModal(false);
+                        onClose();
+                    }}
+                />
+            )}
         </div>
     );
 };

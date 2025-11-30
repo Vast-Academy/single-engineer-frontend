@@ -1,23 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X, Search, User, Clock, FileText, ChevronRight, Check } from 'lucide-react';
 import SummaryApi from '../../common';
 import DatePicker from '../common/DatePicker';
 
-const WORK_ORDER_TYPES = [
-    'CCTV Camera',
-    'Attendance System',
-    'Safe and Locks',
-    'Lift & Elevator Solutions',
-    'Home/Office Automation',
-    'IT & Networking Services',
-    'Software & Website Development',
-    'Custom'
-];
-
-// Removed TIME_SLOTS - user can now enter custom time
-
-const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess }) => {
-    const [step, setStep] = useState(1); // 1: Customer, 2: Type, 3: Schedule, 4: Confirm
+const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess, redirectAfterCreate }) => {
+    const navigate = useNavigate();
+    const [step, setStep] = useState(1); // 1: Customer, 2: Schedule, 3: Confirm
     const [loading, setLoading] = useState(false);
 
     // Customer search
@@ -27,10 +16,10 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
 
     // Form data
     const [selectedCustomer, setSelectedCustomer] = useState(null);
-    const [workOrderType, setWorkOrderType] = useState('');
+    const [note, setNote] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
+    const [hasScheduledTime, setHasScheduledTime] = useState(false);
     const [scheduleTime, setScheduleTime] = useState('');
-    const [remark, setRemark] = useState('');
 
     // Success state
     const [createdWorkOrder, setCreatedWorkOrder] = useState(null);
@@ -57,18 +46,17 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
         const hour = parseInt(hours);
         const ampm = hour >= 12 ? 'PM' : 'AM';
         const hour12 = hour % 12 || 12;
-        return `${hour12}:${minutes} ${ampm}`;
+        return `${hour12.toString().padStart(2, '0')}:${minutes} ${ampm}`;
     };
 
     // Reset form
     const resetForm = () => {
         setStep(preSelectedCustomer ? 2 : 1);
         setSelectedCustomer(preSelectedCustomer || null);
-        setWorkOrderType('');
-        // Set default date to today and time to current time
+        setNote('');
         setScheduleDate(getTodayDate());
+        setHasScheduledTime(false);
         setScheduleTime(getCurrentTime());
-        setRemark('');
         setSearchQuery('');
         setCustomers([]);
         setCreatedWorkOrder(null);
@@ -165,7 +153,22 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
     };
 
     const handleNext = () => {
-        setStep(prev => prev + 1);
+        // Validate note
+        if (!note.trim()) {
+            alert('Please enter work note');
+            return;
+        }
+        // Validate date
+        if (!scheduleDate) {
+            alert('Please select schedule date');
+            return;
+        }
+        // Validate time if enabled
+        if (hasScheduledTime && !scheduleTime) {
+            alert('Please set schedule time');
+            return;
+        }
+        setStep(3);  // Go to confirm
     };
 
     // Handle customer selection
@@ -174,24 +177,20 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
         setStep(2);
     };
 
-    // Handle type selection
-    const handleSelectType = (type) => {
-        setWorkOrderType(type);
-        setStep(3);
-    };
-
     // Create work order
     const handleCreate = async () => {
-        if (!selectedCustomer || !workOrderType || !scheduleDate || !scheduleTime) {
+        if (!selectedCustomer || !note.trim() || !scheduleDate) {
             alert('Please fill all required fields');
+            return;
+        }
+
+        if (hasScheduledTime && !scheduleTime) {
+            alert('Please set schedule time');
             return;
         }
 
         setLoading(true);
         try {
-            // Convert 24-hour time to 12-hour format for backend
-            const formattedTime = formatTimeForDisplay(scheduleTime);
-
             const response = await fetch(SummaryApi.createWorkOrder.url, {
                 method: SummaryApi.createWorkOrder.method,
                 headers: {
@@ -200,10 +199,10 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                 credentials: 'include',
                 body: JSON.stringify({
                     customerId: selectedCustomer._id,
-                    workOrderType,
+                    note: note.trim(),
+                    hasScheduledTime,
                     scheduleDate,
-                    scheduleTime: formattedTime,
-                    remark: remark.trim()
+                    scheduleTime: hasScheduledTime ? formatTimeForDisplay(scheduleTime) : ''
                 })
             });
 
@@ -227,7 +226,14 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
         if (onSuccess && createdWorkOrder) {
             onSuccess(createdWorkOrder);
         }
-        onClose();
+
+        // Redirect to work orders page if specified
+        if (redirectAfterCreate) {
+            onClose();
+            navigate('/workorders');
+        } else {
+            onClose();
+        }
     };
 
     // Format date for display
@@ -276,13 +282,12 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                 <span className="font-medium text-gray-800">{createdWorkOrder.customer?.customerName}</span>
                             </div>
                             <div className="flex justify-between text-sm">
-                                <span className="text-gray-500">Type</span>
-                                <span className="font-medium text-gray-800">{createdWorkOrder.workOrderType}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
                                 <span className="text-gray-500">Scheduled</span>
                                 <span className="font-medium text-gray-800">
-                                    {formatDate(createdWorkOrder.scheduleDate)} at {createdWorkOrder.scheduleTime}
+                                    {formatDate(createdWorkOrder.scheduleDate)}
+                                    {createdWorkOrder.hasScheduledTime && createdWorkOrder.scheduleTime && (
+                                        <span className="text-primary-600"> at {createdWorkOrder.scheduleTime}</span>
+                                    )}
                                 </span>
                             </div>
                         </div>
@@ -319,9 +324,8 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                     )}
                     <h2 className="text-lg font-semibold text-gray-800 flex-1">
                         {step === 1 && 'Select Customer'}
-                        {step === 2 && 'Select Work Type'}
-                        {step === 3 && 'Schedule'}
-                        {step === 4 && 'Confirm Work Order'}
+                        {step === 2 && 'Schedule Work Order'}
+                        {step === 3 && 'Confirm Work Order'}
                     </h2>
                     <button
                         onClick={onClose}
@@ -382,10 +386,10 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                         </div>
                     )}
 
-                    {/* Step 2: Select Work Type */}
+                    {/* Step 2: Schedule */}
                     {step === 2 && (
                         <div className="p-4">
-                            {/* Selected Customer */}
+                            {/* Customer Summary */}
                             {selectedCustomer && (
                                 <div className="flex items-center gap-3 p-3 bg-primary-50 rounded-xl mb-4">
                                     <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
@@ -398,31 +402,20 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                 </div>
                             )}
 
-                            <p className="text-sm font-medium text-gray-700 mb-3">Select Work Order Type</p>
-                            <div className="space-y-2">
-                                {WORK_ORDER_TYPES.map(type => (
-                                    <button
-                                        key={type}
-                                        onClick={() => handleSelectType(type)}
-                                        className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-xl hover:bg-gray-100 text-left"
-                                    >
-                                        <span className="font-medium text-gray-800">{type}</span>
-                                        <ChevronRight className="w-5 h-5 text-gray-400" />
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Step 3: Schedule */}
-                    {step === 3 && (
-                        <div className="p-4">
-                            {/* Summary */}
-                            <div className="bg-gray-50 rounded-xl p-3 mb-4">
-                                <p className="text-sm text-gray-500">Customer</p>
-                                <p className="font-medium text-gray-800">{selectedCustomer?.customerName}</p>
-                                <p className="text-sm text-gray-500 mt-2">Work Type</p>
-                                <p className="font-medium text-gray-800">{workOrderType}</p>
+                            {/* Note (Mandatory) */}
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    <FileText className="w-4 h-4 inline mr-1" />
+                                    Work Note *
+                                </label>
+                                <textarea
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                    rows={3}
+                                    placeholder="e.g., CCTV Camera Installation..."
+                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500 resize-none"
+                                    required
+                                />
                             </div>
 
                             {/* Date */}
@@ -438,44 +431,44 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                 />
                             </div>
 
-                            {/* Time */}
+                            {/* Time Checkbox */}
                             <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    <Clock className="w-4 h-4 inline mr-1" />
-                                    Schedule Time *
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={hasScheduledTime}
+                                        onChange={(e) => setHasScheduledTime(e.target.checked)}
+                                        className="w-5 h-5 text-primary-500 border-gray-300 rounded focus:ring-primary-500"
+                                    />
+                                    <span className="text-sm font-medium text-gray-700">Set specific time</span>
                                 </label>
-                                <input
-                                    type="time"
-                                    value={scheduleTime}
-                                    onChange={(e) => setScheduleTime(e.target.value)}
-                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
-                                />
-                                {scheduleTime && (
-                                    <p className="text-xs text-gray-500 mt-2">
-                                        Selected: {formatTimeForDisplay(scheduleTime)}
-                                    </p>
-                                )}
                             </div>
 
-                            {/* Remark */}
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    <FileText className="w-4 h-4 inline mr-1" />
-                                    Remark (Optional)
-                                </label>
-                                <textarea
-                                    value={remark}
-                                    onChange={(e) => setRemark(e.target.value)}
-                                    rows={3}
-                                    placeholder="Add any notes or instructions..."
-                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500 resize-none"
-                                />
-                            </div>
+                            {/* Time Input (Conditional) */}
+                            {hasScheduledTime && (
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <Clock className="w-4 h-4 inline mr-1" />
+                                        Schedule Time *
+                                    </label>
+                                    <input
+                                        type="time"
+                                        value={scheduleTime}
+                                        onChange={(e) => setScheduleTime(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                                    />
+                                    {scheduleTime && (
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Selected: {formatTimeForDisplay(scheduleTime)}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Step 4: Confirm */}
-                    {step === 4 && (
+                    {/* Step 3: Confirm */}
+                    {step === 3 && (
                         <div className="p-4">
                             <div className="bg-gray-50 rounded-xl p-4 space-y-4">
                                 <div>
@@ -485,33 +478,31 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                                 </div>
 
                                 <div className="border-t pt-4">
-                                    <p className="text-xs text-gray-500 uppercase">Work Type</p>
-                                    <p className="font-semibold text-gray-800">{workOrderType}</p>
+                                    <p className="text-xs text-gray-500 uppercase">Work Note</p>
+                                    <p className="text-gray-800">{note}</p>
                                 </div>
 
                                 <div className="border-t pt-4">
                                     <p className="text-xs text-gray-500 uppercase">Scheduled</p>
                                     <p className="font-semibold text-gray-800">{formatDate(scheduleDate)}</p>
-                                    <p className="text-sm text-primary-600">{formatTimeForDisplay(scheduleTime)}</p>
+                                    {hasScheduledTime && scheduleTime && (
+                                        <p className="text-sm text-primary-600">{formatTimeForDisplay(scheduleTime)}</p>
+                                    )}
+                                    {!hasScheduledTime && (
+                                        <p className="text-xs text-gray-500 italic">No specific time</p>
+                                    )}
                                 </div>
-
-                                {remark && (
-                                    <div className="border-t pt-4">
-                                        <p className="text-xs text-gray-500 uppercase">Remark</p>
-                                        <p className="text-gray-800">{remark}</p>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
                 </div>
 
                 {/* Footer */}
-                {step === 3 && (
+                {step === 2 && (
                     <div className="p-4 border-t flex-shrink-0">
                         <button
                             onClick={handleNext}
-                            disabled={!scheduleDate || !scheduleTime}
+                            disabled={!note.trim() || !scheduleDate || (hasScheduledTime && !scheduleTime)}
                             className="w-full py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Continue
@@ -519,7 +510,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess 
                     </div>
                 )}
 
-                {step === 4 && (
+                {step === 3 && (
                     <div className="p-4 border-t flex-shrink-0">
                         <button
                             onClick={handleCreate}
