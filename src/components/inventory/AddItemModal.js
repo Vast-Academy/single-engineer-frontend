@@ -13,8 +13,9 @@ const warrantyOptions = [
     { value: '5_year', label: '5 Years' }
 ];
 
-const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null }) => {
+const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingItems = [] }) => {
     const [loading, setLoading] = useState(false);
+    const [nameError, setNameError] = useState('');
     const [formData, setFormData] = useState({
         itemType: 'generic',
         itemName: '',
@@ -87,6 +88,28 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null }) => {
             ...prev,
             [name]: value
         }));
+
+        // Check for duplicate item name
+        if (name === 'itemName') {
+            const trimmedValue = value.trim().toLowerCase();
+            if (trimmedValue) {
+                const isDuplicate = existingItems.some(item => {
+                    // Skip checking against the item being edited
+                    if (editItem && item._id === editItem._id) {
+                        return false;
+                    }
+                    return item.itemName.toLowerCase() === trimmedValue;
+                });
+
+                if (isDuplicate) {
+                    setNameError('This name already exists');
+                } else {
+                    setNameError('');
+                }
+            } else {
+                setNameError('');
+            }
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -186,16 +209,23 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null }) => {
 
                     {/* Item Name */}
                     <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Item Name *</label>
                         <input
                             type="text"
                             name="itemName"
                             value={formData.itemName}
                             onChange={handleChange}
                             required
-                            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                            className={`w-full border-2 rounded-xl px-4 py-3 text-sm focus:outline-none ${
+                                nameError
+                                    ? 'border-red-500 bg-red-50 focus:border-red-600'
+                                    : 'border-gray-300 focus:border-primary-500'
+                            }`}
                             placeholder="Enter item name"
                         />
+                        {nameError && (
+                            <p className="text-xs text-red-600 mt-1 ml-1 font-medium">{nameError}</p>
+                        )}
                     </div>
 
                     {/* Unit */}
@@ -283,8 +313,8 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null }) => {
                     </button>
                     <button
                         onClick={handleSubmit}
-                        disabled={loading}
-                        className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50"
+                        disabled={loading || !!nameError}
+                        className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {loading ? 'Saving...' : (editItem ? 'Update Item' : 'Add Item')}
                     </button>

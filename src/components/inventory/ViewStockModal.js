@@ -154,30 +154,39 @@ const ViewStockModal = ({ isOpen, onClose, item }) => {
                                     {item.serialNumbers.slice().reverse().map((sn, index) => (
                                         <div
                                             key={sn._id || index}
-                                            className={`flex items-center justify-between p-3 rounded-xl ${
+                                            className={`p-3 rounded-xl ${
                                                 sn.status === 'available' ? 'bg-green-50' : 'bg-gray-100'
                                             }`}
                                         >
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                                                    sn.status === 'available' ? 'bg-green-100' : 'bg-gray-200'
+                                            <div className="flex items-center justify-between mb-1">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                                        sn.status === 'available' ? 'bg-green-100' : 'bg-gray-200'
+                                                    }`}>
+                                                        <Hash className={`w-5 h-5 ${
+                                                            sn.status === 'available' ? 'text-green-600' : 'text-gray-500'
+                                                        }`} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium text-gray-800 font-mono">{sn.serialNo}</p>
+                                                        <p className="text-xs text-gray-500">Added: {formatDate(sn.addedAt)}</p>
+                                                    </div>
+                                                </div>
+                                                <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                                    sn.status === 'available'
+                                                        ? 'bg-green-200 text-green-700'
+                                                        : 'bg-gray-300 text-gray-600'
                                                 }`}>
-                                                    <Hash className={`w-5 h-5 ${
-                                                        sn.status === 'available' ? 'text-green-600' : 'text-gray-500'
-                                                    }`} />
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium text-gray-800 font-mono">{sn.serialNo}</p>
-                                                    <p className="text-xs text-gray-500">{formatDate(sn.addedAt)}</p>
-                                                </div>
+                                                    {sn.status === 'available' ? 'Available' : 'Sold'}
+                                                </span>
                                             </div>
-                                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                                sn.status === 'available'
-                                                    ? 'bg-green-200 text-green-700'
-                                                    : 'bg-gray-300 text-gray-600'
-                                            }`}>
-                                                {sn.status === 'available' ? 'Available' : 'Sold'}
-                                            </span>
+                                            {/* Show customer info for sold items */}
+                                            {sn.status === 'sold' && sn.customerName && (
+                                                <div className="ml-13 text-xs text-gray-600 mt-1">
+                                                    Sold to: <span className="font-medium text-gray-800">{sn.customerName}</span>
+                                                    {sn.billNumber && <span className="text-gray-500"> ({sn.billNumber})</span>}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>

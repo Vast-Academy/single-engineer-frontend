@@ -9,7 +9,8 @@ const ItemSelectionStep = ({
     selectedItems,
     onAddItem,
     onRemoveItem,
-    onContinue
+    onContinue,
+    hideCustomerInfo = false
 }) => {
     const [activeTab, setActiveTab] = useState('products');
     const [searchQuery, setSearchQuery] = useState('');
@@ -151,22 +152,24 @@ const ItemSelectionStep = ({
     return (
         <div className="flex flex-col h-full">
             {/* Customer Info */}
-            <div className="p-4 bg-gray-50 border-b flex-shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                        <span className="text-primary-600 font-bold">
-                            {customer.customerName?.charAt(0).toUpperCase()}
-                        </span>
-                    </div>
-                    <div>
-                        <h3 className="font-medium text-gray-800">{customer.customerName}</h3>
-                        <p className="text-sm text-gray-500 flex items-center gap-1">
-                            <Phone className="w-3 h-3" />
-                            {customer.phoneNumber}
-                        </p>
+            {!hideCustomerInfo && (
+                <div className="p-4 bg-gray-50 border-b flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                            <span className="text-primary-600 font-bold">
+                                {customer.customerName?.charAt(0).toUpperCase()}
+                            </span>
+                        </div>
+                        <div>
+                            <h3 className="font-medium text-gray-800">{customer.customerName}</h3>
+                            <p className="text-sm text-gray-500 flex items-center gap-1">
+                                <Phone className="w-3 h-3" />
+                                {customer.phoneNumber}
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Search Bar */}
             <div className="p-4 border-b flex-shrink-0">

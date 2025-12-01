@@ -6,7 +6,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     const [loading, setLoading] = useState(false);
     const [stockQty, setStockQty] = useState('');
     const [serialInputs, setSerialInputs] = useState([
-        { value: '', status: 'idle', message: '' }
+        { value: '', status: 'idle', message: '', messageType: null }
     ]);
 
     const inputRefs = useRef([]);
@@ -15,7 +15,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     useEffect(() => {
         if (isOpen) {
             setStockQty('');
-            setSerialInputs([{ value: '', status: 'idle', message: '' }]);
+            setSerialInputs([{ value: '', status: 'idle', message: '', messageType: null }]);
         }
     }, [isOpen]);
 
@@ -56,7 +56,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
         if (!serialNumber || serialNumber.trim() === '') {
             setSerialInputs(prev => {
                 const updated = [...prev];
-                updated[index] = { ...updated[index], status: 'idle', message: '' };
+                updated[index] = { ...updated[index], status: 'idle', message: '', messageType: null };
                 return updated;
             });
             return;
@@ -74,7 +74,8 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                 updated[index] = {
                     ...updated[index],
                     status: 'invalid',
-                    message: 'Duplicate in current list'
+                    message: 'Duplicate in current list',
+                    messageType: 'error'
                 };
                 return updated;
             });
@@ -102,16 +103,40 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             setSerialInputs(prev => {
                 const updated = [...prev];
                 if (data.exists) {
+                    // Show different messages based on status
+                    let message = '';
+                    let messageType = 'error'; // 'error' or 'warning'
+
+                    if (data.status === 'sold' && data.customerName) {
+                        // Serial number was used in a bill - show customer info
+                        message = `Sold to ${data.customerName}${data.billNumber ? ` (${data.billNumber})` : ''}`;
+                        messageType = 'error';
+                    } else if (data.status === 'sold') {
+                        // Old data - sold but no customer info
+                        message = `Already sold (${data.itemName})`;
+                        messageType = 'error';
+                    } else if (data.status === 'available') {
+                        // Serial number is already in stock
+                        message = `Already in stock (${data.itemName})`;
+                        messageType = 'warning';
+                    } else {
+                        // Fallback message
+                        message = `Already exists (${data.itemName})`;
+                        messageType = 'error';
+                    }
+
                     updated[index] = {
                         ...updated[index],
                         status: 'invalid',
-                        message: `Already in stock (${data.itemName})`
+                        message,
+                        messageType
                     };
                 } else {
                     updated[index] = {
                         ...updated[index],
                         status: 'valid',
-                        message: ''
+                        message: '',
+                        messageType: null
                     };
                 }
                 return updated;
@@ -120,7 +145,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             console.error('Check serial error:', error);
             setSerialInputs(prev => {
                 const updated = [...prev];
-                updated[index] = { ...updated[index], status: 'idle', message: '' };
+                updated[index] = { ...updated[index], status: 'idle', message: '', messageType: null };
                 return updated;
             });
         }
@@ -133,7 +158,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
         // Update value immediately
         setSerialInputs(prev => {
             const updated = [...prev];
-            updated[index] = { ...updated[index], value, status: 'idle', message: '' };
+            updated[index] = { ...updated[index], value, status: 'idle', message: '', messageType: null };
             return updated;
         });
 
@@ -163,7 +188,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     };
 
     const handleAddSerialField = () => {
-        setSerialInputs(prev => [...prev, { value: '', status: 'idle', message: '' }]);
+        setSerialInputs(prev => [...prev, { value: '', status: 'idle', message: '', messageType: null }]);
         // Focus on new input after render
         setTimeout(() => {
             inputRefs.current[serialInputs.length]?.focus();
@@ -178,7 +203,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
 
         setSerialInputs(prev => {
             const updated = prev.filter((_, i) => i !== index);
-            return updated.length ? updated : [{ value: '', status: 'idle', message: '' }];
+            return updated.length ? updated : [{ value: '', status: 'idle', message: '', messageType: null }];
         });
     };
 
@@ -234,7 +259,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                 onSuccess(data.item);
                 onClose();
                 setStockQty('');
-                setSerialInputs([{ value: '', status: 'idle', message: '' }]);
+                setSerialInputs([{ value: '', status: 'idle', message: '', messageType: null }]);
             } else {
                 alert(data.message || 'Failed to update stock');
             }
@@ -368,11 +393,22 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                                             </button>
                                         )}
                                     </div>
-                                    {/* Error Message */}
+                                    {/* Error/Warning Message */}
                                     {serial.status === 'invalid' && serial.message && (
-                                        <p className="text-xs text-red-500 mt-1 ml-1">
-                                            Note: {serial.message}
-                                        </p>
+                                        <div className={`mt-2 ml-1 rounded-lg p-2.5 border ${
+                                            serial.messageType === 'error'
+                                                ? 'bg-red-50 border-red-300'
+                                                : 'bg-orange-50 border-orange-300'
+                                        }`}>
+                                            <p className={`text-xs font-semibold ${
+                                                serial.messageType === 'error'
+                                                    ? 'text-red-800'
+                                                    : 'text-orange-800'
+                                            }`}>
+                                                {serial.messageType === 'error' ? '⚠️ ' : 'ℹ️ '}
+                                                {serial.message}
+                                            </p>
+                                        </div>
                                     )}
                                 </div>
                             ))}
