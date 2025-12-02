@@ -170,7 +170,7 @@ const Home = () => {
     }
 
     return (
-        <div className="pb-20 py-3">
+        <div className="pb-20">
             {/* Month Selector + First Metric Row */}
             <div className="grid grid-cols-2 gap-2 mb-3">
                 {/* Month Selector Card - Right Side */}
