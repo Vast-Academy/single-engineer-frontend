@@ -56,7 +56,7 @@ const Layout = ({ children }) => {
             <Header />
 
             {/* Main Content - with padding for header and bottom nav */}
-            <main className={`pt-14 pb-20 px-4 ${showBanner ? 'mt-12' : ''}`}>
+            <main className={`pt-12 sm:pt-16 pb-20 px-4 ${showBanner ? 'mt-12' : ''}`}>
                 {children}
             </main>
 
