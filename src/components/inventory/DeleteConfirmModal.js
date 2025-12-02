@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 
-const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loading = false }) => {
+const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loading = false, confirmText = 'Delete', loadingText = 'Deleting...' }) => {
     // Handle ESC key press
     const handleKeyDown = useCallback((e) => {
         if (e.key === 'Escape' && !loading) {
@@ -86,7 +86,7 @@ const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, message, loadin
                         disabled={loading}
                         className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 disabled:opacity-50"
                     >
-                        {loading ? 'Deleting...' : 'Delete'}
+                        {loading ? loadingText : confirmText}
                     </button>
                 </div>
             </div>

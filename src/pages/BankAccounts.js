@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Building2 } from 'lucide-react';
 import SummaryApi from '../common';
 import BankAccountCard from '../components/bank/BankAccountCard';
 import BankAccountModal from '../components/bank/BankAccountModal';
+import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
 
 const BankAccounts = () => {
     const navigate = useNavigate();
@@ -13,6 +14,11 @@ const BankAccounts = () => {
     // Modal states
     const [showModal, setShowModal] = useState(false);
     const [selectedAccount, setSelectedAccount] = useState(null);
+
+    // Delete confirmation modal
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [accountToDelete, setAccountToDelete] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Fetch accounts on mount
     useEffect(() => {
@@ -48,19 +54,26 @@ const BankAccounts = () => {
         setShowModal(true);
     };
 
-    // Handle delete
-    const handleDelete = async (account) => {
-        if (!window.confirm(`Are you sure you want to delete "${account.bankName}" account?`)) {
-            return;
-        }
+    // Handle delete - Show confirmation modal
+    const handleDelete = (account) => {
+        setAccountToDelete(account);
+        setShowDeleteModal(true);
+    };
 
+    // Confirm delete - Actual deletion
+    const confirmDelete = async () => {
+        if (!accountToDelete) return;
+
+        setIsDeleting(true);
         try {
-            const response = await fetch(`${SummaryApi.deleteBankAccount.url}/${account._id}`, {
+            const response = await fetch(`${SummaryApi.deleteBankAccount.url}/${accountToDelete._id}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
             const data = await response.json();
             if (data.success) {
+                setShowDeleteModal(false);
+                setAccountToDelete(null);
                 fetchAccounts(); // Refresh list
             } else {
                 alert(data.message || 'Failed to delete account');
@@ -68,6 +81,8 @@ const BankAccounts = () => {
         } catch (error) {
             console.error('Delete account error:', error);
             alert('Failed to delete account');
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -156,12 +171,25 @@ const BankAccounts = () => {
                 </button>
             )}
 
-            {/* Modal */}
+            {/* Add/Edit Modal */}
             <BankAccountModal
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
                 account={selectedAccount}
                 onSuccess={handleSuccess}
+            />
+
+            {/* Delete Confirmation Modal */}
+            <DeleteConfirmModal
+                isOpen={showDeleteModal}
+                onClose={() => {
+                    setShowDeleteModal(false);
+                    setAccountToDelete(null);
+                }}
+                onConfirm={confirmDelete}
+                title="Delete Bank Account?"
+                message={`Are you sure you want to delete "${accountToDelete?.bankName}" account? This action cannot be undone.`}
+                loading={isDeleting}
             />
         </div>
     );

@@ -344,9 +344,9 @@ const Home = () => {
                 </div>
             </div>
 
-            {/* Pending Works */}
+            {/* Work Orders */}
             <div>
-                <h3 className="text-sm font-semibold text-gray-600 mb-2">Pending Works</h3>
+                <h3 className="text-sm font-semibold text-gray-600 mb-2">Work Orders</h3>
                 {metrics?.pendingWorks && metrics.pendingWorks.length > 0 ? (
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
                         {metrics.pendingWorks.map((workOrder) => (
