@@ -170,7 +170,7 @@ const Home = () => {
     }
 
     return (
-        <div className="py-3 pb-20">
+        <div className="pb-20">
             {/* Compact Header with Month Selector */}
             <div className="flex items-center justify-between mb-3">
                 <div>
@@ -190,60 +190,6 @@ const Home = () => {
                         ))}
                     </select>
                 )}
-            </div>
-
-            {/* Current Status - Compact 2 Column */}
-            <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
-                    <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                            </svg>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs text-gray-500">Total Stock</p>
-                            <p className="text-lg font-bold text-gray-800">{metrics?.currentMetrics.totalStock || 0}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
-                    <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs text-gray-500">Pending Orders</p>
-                            <p className="text-lg font-bold text-gray-800">{metrics?.currentMetrics.pendingWorkOrders || 0}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Gross Profit - Highlight */}
-            <div className={`rounded-xl p-4 mb-3 shadow-sm ${
-                (metrics?.monthMetrics.grossProfit || 0) >= 0
-                    ? 'bg-gradient-to-r from-primary-500 to-blue-500'
-                    : 'bg-gradient-to-r from-red-500 to-red-600'
-            }`}>
-                <div className="flex items-center justify-between">
-                    <div>
-                        <p className="text-xs text-white/80">Gross Profit</p>
-                        <p className="text-2xl font-bold text-white mt-0.5">{formatCurrency(metrics?.monthMetrics.grossProfit)}</p>
-                    </div>
-                    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {(metrics?.monthMetrics.grossProfit || 0) >= 0 ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            )}
-                        </svg>
-                    </div>
-                </div>
             </div>
 
             {/* Financial Metrics - Compact Grid */}
@@ -341,6 +287,60 @@ const Home = () => {
                         <p className="text-xs text-gray-500">Services</p>
                     </div>
                     <p className="text-sm font-bold text-purple-600">{formatCurrency(metrics?.monthMetrics.servicesAmount)}</p>
+                </div>
+            </div>
+
+            {/* Gross Profit - Highlight */}
+            <div className={`rounded-xl p-4 mb-3 shadow-sm ${
+                (metrics?.monthMetrics.grossProfit || 0) >= 0
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                    : 'bg-gradient-to-r from-red-500 to-red-600'
+            }`}>
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-xs text-white/80">Gross Profit/Loss</p>
+                        <p className="text-2xl font-bold text-white mt-0.5">{formatCurrency(metrics?.monthMetrics.grossProfit)}</p>
+                    </div>
+                    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {(metrics?.monthMetrics.grossProfit || 0) >= 0 ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                            )}
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            {/* Current Status - Compact 2 Column */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                            </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-500">Total Stock</p>
+                            <p className="text-lg font-bold text-gray-800">{metrics?.currentMetrics.totalStock || 0}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-500">Pending Orders</p>
+                            <p className="text-lg font-bold text-gray-800">{metrics?.currentMetrics.pendingWorkOrders || 0}</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
