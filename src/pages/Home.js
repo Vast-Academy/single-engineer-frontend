@@ -170,25 +170,30 @@ const Home = () => {
     }
 
     return (
-        <div className="pb-20">
-            {/* Compact Header with Month Selector */}
-            <div className="flex items-center justify-end mb-3">
-                {/* <div>
-                    <h1 className="text-lg font-bold text-gray-800">Dashboard</h1>
-                    <p className="text-xs text-gray-500">Welcome, {user?.displayName?.split(' ')[0] || 'User'}</p>
-                </div> */}
+        <div className="pb-20 py-3">
+            {/* Month Selector + First Metric Row */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                {/* Month Selector Card - Right Side */}
                 {availableMonths.length > 0 && (
-                    <select
-                        value={selectedMonth}
-                        onChange={handleMonthChange}
-                        className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-700 focus:outline-none focus:border-primary-500"
-                    >
-                        {availableMonths.map((month) => (
-                            <option key={`${month.year}-${month.month}`} value={`${month.year}-${month.month}`}>
-                                {month.label}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="col-start-2 bg-white rounded-lg p-2.5 shadow-sm border border-gray-100">
+                        <div className="flex items-center gap-1.5 mb-1">
+                            <svg className="w-3.5 h-3.5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-[10px] text-gray-500 font-medium">Revenue Period</span>
+                        </div>
+                        <select
+                            value={selectedMonth}
+                            onChange={handleMonthChange}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 text-[11px] font-semibold text-gray-800 focus:outline-none focus:border-primary-500 focus:bg-white"
+                        >
+                            {availableMonths.map((month) => (
+                                <option key={`${month.year}-${month.month}`} value={`${month.year}-${month.month}`}>
+                                    {month.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                 )}
             </div>
 

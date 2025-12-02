@@ -191,7 +191,7 @@ const Inventory = () => {
     );
 
     return (
-        <div className="py-4 pb-20">
+        <div className="pb-20">
             {/* Search Bar */}
             <div className="mb-4">
                 <div className="relative">

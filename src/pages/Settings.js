@@ -63,7 +63,7 @@ const Settings = () => {
             </header>
 
             {/* Content */}
-            <div className="pt-16 pb-8 px-4">
+            <div className="pt-20 pb-8 px-4">
 
             {/* Profile Card */}
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-5 shadow-lg mb-6">

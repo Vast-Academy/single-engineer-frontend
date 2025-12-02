@@ -87,7 +87,7 @@ const Workorders = () => {
     const completedCount = completedWorkOrders.length;
 
     return (
-        <div className="py-4 pb-20">
+        <div className="pb-20">
             {/* Page Header */}
             <div className="mb-4">
                 <h1 className="text-xl font-bold text-gray-800">Work Orders</h1>

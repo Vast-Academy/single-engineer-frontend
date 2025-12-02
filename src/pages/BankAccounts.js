@@ -111,7 +111,7 @@ const BankAccounts = () => {
     };
 
     return (
-        <div className="py-4 pb-20">
+        <div className="pb-20">
             {/* Page Header */}
             <div className="flex items-center gap-3 mb-4">
                 <button

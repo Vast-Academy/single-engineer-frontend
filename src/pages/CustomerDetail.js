@@ -189,7 +189,7 @@ const CustomerDetail = () => {
     }
 
     return (
-        <div className="py-4 pb-20">
+        <div className="pb-20">
             {/* Header */}
             <div className="flex items-center gap-3 mb-4">
                 <button
