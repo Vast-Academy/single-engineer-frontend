@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight } from 'lucide-react';
+import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft } from 'lucide-react';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
 
 const Settings = () => {
@@ -48,12 +48,22 @@ const Settings = () => {
     );
 
     return (
-        <div className="py-4 pb-24">
-            {/* Page Header */}
-            <div className="mb-6">
-                <h1 className="text-xl font-bold text-gray-800">Settings</h1>
-                <p className="text-gray-500 text-sm mt-0.5">Manage your account and preferences</p>
-            </div>
+        <div className="min-h-screen bg-gray-50">
+            {/* Header with Back Arrow */}
+            <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50">
+                <div className="px-4 py-3 flex items-center gap-3">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                    >
+                        <ArrowLeft className="w-6 h-6 text-gray-700" />
+                    </button>
+                    <h1 className="text-lg font-semibold text-gray-800">Settings</h1>
+                </div>
+            </header>
+
+            {/* Content */}
+            <div className="pt-16 pb-8 px-4">
 
             {/* Profile Card */}
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-5 shadow-lg mb-6">
@@ -161,6 +171,7 @@ const Settings = () => {
                 confirmText="Logout"
                 loadingText="Logging out..."
             />
+            </div>
         </div>
     );
 };

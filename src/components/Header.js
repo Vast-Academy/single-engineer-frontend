@@ -1,14 +1,19 @@
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 
 const Header = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
 
     return (
         <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50">
             <div className="px-4 py-3 flex items-center justify-between">
                 {/* User Profile - Left Side */}
-                <div className="flex items-center gap-2">
+                <button
+                    onClick={() => navigate('/settings')}
+                    className="flex items-center gap-2 hover:bg-gray-50 active:bg-gray-100 rounded-xl p-1.5 -ml-1.5 transition-colors"
+                >
                     {user?.photoURL ? (
                         <img
                             src={user.photoURL}
@@ -29,7 +34,7 @@ const Header = () => {
                         </p>
                         {/* <p className="text-xs text-gray-500 leading-tight">Engineer</p> */}
                     </div>
-                </div>
+                </button>
 
                 {/* Notification Bell - Right Side */}
                 <button className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors relative">

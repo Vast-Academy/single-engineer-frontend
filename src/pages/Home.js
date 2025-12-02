@@ -172,11 +172,11 @@ const Home = () => {
     return (
         <div className="pb-20">
             {/* Compact Header with Month Selector */}
-            <div className="flex items-center justify-between mb-3">
-                <div>
+            <div className="flex items-center justify-end mb-3">
+                {/* <div>
                     <h1 className="text-lg font-bold text-gray-800">Dashboard</h1>
                     <p className="text-xs text-gray-500">Welcome, {user?.displayName?.split(' ')[0] || 'User'}</p>
-                </div>
+                </div> */}
                 {availableMonths.length > 0 && (
                     <select
                         value={selectedMonth}

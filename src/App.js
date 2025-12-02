@@ -86,9 +86,7 @@ function App() {
                         path="/settings"
                         element={
                             <ProtectedRoute>
-                                <Layout>
-                                    <Settings />
-                                </Layout>
+                                <Settings />
                             </ProtectedRoute>
                         }
                     />
