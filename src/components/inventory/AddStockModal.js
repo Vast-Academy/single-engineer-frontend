@@ -314,9 +314,9 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl h-[85vh] sm:h-[80vh] flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b">
+                <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
                     <h2 className="text-lg font-semibold text-gray-800">Add Stock</h2>
                     <button
                         onClick={onClose}
@@ -326,8 +326,8 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                     </button>
                 </div>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="p-4 overflow-y-auto max-h-[calc(90vh-130px)]">
+                {/* Form - Scrollable Content */}
+                <div className="flex-1 overflow-y-auto p-4">
                     {/* Item Info */}
                     <div className="bg-gray-50 rounded-xl p-3 mb-4">
                         <p className="font-medium text-gray-800">{item.itemName}</p>
@@ -421,10 +421,10 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                             </button>
                         </div>
                     )}
-                </form>
+                </div>
 
-                {/* Footer */}
-                <div className="flex gap-3 p-4 border-t">
+                {/* Footer - Always Visible */}
+                <div className="flex gap-3 p-4 border-t flex-shrink-0">
                     <button
                         type="button"
                         onClick={onClose}

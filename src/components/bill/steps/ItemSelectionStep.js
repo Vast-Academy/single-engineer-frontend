@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, ChevronDown, ChevronUp, Plus, Minus, X, Phone } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Plus, Minus, X, Phone, Trash2 } from 'lucide-react';
 
 const ItemSelectionStep = ({
     customer,
@@ -16,8 +16,6 @@ const ItemSelectionStep = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedItems, setExpandedItems] = useState({});
     const [selectedSerials, setSelectedSerials] = useState({});
-    const [genericQty, setGenericQty] = useState({});
-    const [serviceQty, setServiceQty] = useState({});
 
     // Separate serialized and generic items
     const serializedItems = items.filter(item => item.itemType === 'serialized');
@@ -74,52 +72,96 @@ const ItemSelectionStep = ({
         setSelectedSerials(prev => ({ ...prev, [item._id]: [] }));
     };
 
-    // Handle generic qty change
-    const handleGenericQtyChange = (itemId, delta, maxQty) => {
-        setGenericQty(prev => {
-            const current = prev[itemId] || 1;
-            const newQty = Math.max(1, Math.min(maxQty, current + delta));
-            return { ...prev, [itemId]: newQty };
-        });
+    // Get item in cart (for generic/service)
+    const getItemInCart = (itemId, itemType) => {
+        return selectedItems.find(si => si.itemId === itemId && si.itemType === itemType);
     };
 
-    // Add generic item
+    // Add generic item (first time)
     const handleAddGenericItem = (item) => {
-        const qty = genericQty[item._id] || 1;
         onAddItem({
             itemType: 'generic',
             itemId: item._id,
             itemName: item.itemName,
-            qty,
+            qty: 1,
             price: item.salePrice,
-            amount: item.salePrice * qty
-        });
-        // Reset qty
-        setGenericQty(prev => ({ ...prev, [item._id]: 1 }));
-    };
-
-    // Handle service qty change
-    const handleServiceQtyChange = (serviceId, delta) => {
-        setServiceQty(prev => {
-            const current = prev[serviceId] || 1;
-            const newQty = Math.max(1, current + delta);
-            return { ...prev, [serviceId]: newQty };
+            amount: item.salePrice
         });
     };
 
-    // Add service
+    // Update generic item qty
+    const handleUpdateGenericQty = (item, delta) => {
+        const cartItem = getItemInCart(item._id, 'generic');
+        if (!cartItem) return;
+
+        const newQty = cartItem.qty + delta;
+        const availableStock = getAvailableStock(item);
+        const maxQty = availableStock + cartItem.qty; // Current qty + remaining stock
+
+        if (newQty < 1 || newQty > maxQty) return;
+
+        // Find index and update
+        const index = selectedItems.findIndex(si => si.itemId === item._id && si.itemType === 'generic');
+        if (index !== -1) {
+            const updatedItem = {
+                ...cartItem,
+                qty: newQty,
+                amount: item.salePrice * newQty
+            };
+            // Remove old and add updated
+            onRemoveItem(index);
+            onAddItem(updatedItem);
+        }
+    };
+
+    // Delete generic item from cart
+    const handleDeleteGenericItem = (itemId) => {
+        const index = selectedItems.findIndex(si => si.itemId === itemId && si.itemType === 'generic');
+        if (index !== -1) {
+            onRemoveItem(index);
+        }
+    };
+
+    // Add service (first time)
     const handleAddService = (service) => {
-        const qty = serviceQty[service._id] || 1;
         onAddItem({
             itemType: 'service',
             itemId: service._id,
             itemName: service.serviceName,
-            qty,
+            qty: 1,
             price: service.servicePrice,
-            amount: service.servicePrice * qty
+            amount: service.servicePrice
         });
-        // Reset qty
-        setServiceQty(prev => ({ ...prev, [service._id]: 1 }));
+    };
+
+    // Update service qty
+    const handleUpdateServiceQty = (service, delta) => {
+        const cartItem = getItemInCart(service._id, 'service');
+        if (!cartItem) return;
+
+        const newQty = cartItem.qty + delta;
+        if (newQty < 1) return;
+
+        // Find index and update
+        const index = selectedItems.findIndex(si => si.itemId === service._id && si.itemType === 'service');
+        if (index !== -1) {
+            const updatedItem = {
+                ...cartItem,
+                qty: newQty,
+                amount: service.servicePrice * newQty
+            };
+            // Remove old and add updated
+            onRemoveItem(index);
+            onAddItem(updatedItem);
+        }
+    };
+
+    // Delete service from cart
+    const handleDeleteService = (serviceId) => {
+        const index = selectedItems.findIndex(si => si.itemId === serviceId && si.itemType === 'service');
+        if (index !== -1) {
+            onRemoveItem(index);
+        }
     };
 
     // Get available serials (not already added)
@@ -288,42 +330,53 @@ const ItemSelectionStep = ({
                                 <div className="space-y-2">
                                     {filteredGenericItems.map(item => {
                                         const availableStock = getAvailableStock(item);
-                                        const qty = genericQty[item._id] || 1;
+                                        const cartItem = getItemInCart(item._id, 'generic');
+                                        const isInCart = !!cartItem;
 
-                                        if (availableStock <= 0) return null;
+                                        if (availableStock <= 0 && !isInCart) return null;
 
                                         return (
                                             <div key={item._id} className="bg-white border rounded-xl p-3">
                                                 <div className="flex items-center justify-between">
-                                                    <div>
+                                                    <div className="flex-1">
                                                         <p className="font-medium text-gray-800">{item.itemName}</p>
                                                         <p className="text-sm text-gray-500">
-                                                            ₹{item.salePrice} · {availableStock} in stock
+                                                            ₹{item.salePrice} · {availableStock + (cartItem?.qty || 0)} in stock
                                                         </p>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        {/* Qty Controls */}
-                                                        <div className="flex items-center gap-1 bg-gray-100 rounded-lg">
+                                                        {!isInCart ? (
+                                                            /* Show only Add button */
                                                             <button
-                                                                onClick={() => handleGenericQtyChange(item._id, -1, availableStock)}
-                                                                className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 rounded-l-lg"
+                                                                onClick={() => handleAddGenericItem(item)}
+                                                                disabled={availableStock <= 0}
+                                                                className="px-4 py-2 bg-primary-500 text-white text-sm font-medium rounded-lg hover:bg-primary-600 disabled:opacity-50"
                                                             >
-                                                                <Minus className="w-4 h-4" />
+                                                                Add
                                                             </button>
-                                                            <span className="w-8 text-center text-sm font-medium">{qty}</span>
-                                                            <button
-                                                                onClick={() => handleGenericQtyChange(item._id, 1, availableStock)}
-                                                                className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 rounded-r-lg"
-                                                            >
-                                                                <Plus className="w-4 h-4" />
-                                                            </button>
-                                                        </div>
-                                                        <button
-                                                            onClick={() => handleAddGenericItem(item)}
-                                                            className="px-3 py-2 bg-primary-500 text-white text-sm font-medium rounded-lg hover:bg-primary-600"
-                                                        >
-                                                            Add
-                                                        </button>
+                                                        ) : (
+                                                            /* Show qty controls */
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    onClick={() => cartItem.qty === 1 ? handleDeleteGenericItem(item._id) : handleUpdateGenericQty(item, -1)}
+                                                                    className="w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-lg"
+                                                                >
+                                                                    {cartItem.qty === 1 ? (
+                                                                        <Trash2 className="w-4 h-4 text-red-500" />
+                                                                    ) : (
+                                                                        <Minus className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                                <span className="w-10 text-center text-sm font-semibold">{cartItem.qty}</span>
+                                                                <button
+                                                                    onClick={() => handleUpdateGenericQty(item, 1)}
+                                                                    disabled={availableStock <= 0}
+                                                                    className="w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                                                                >
+                                                                    <Plus className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -343,37 +396,47 @@ const ItemSelectionStep = ({
                     <div className="p-4 space-y-2">
                         {filteredServices.length > 0 ? (
                             filteredServices.map(service => {
-                                const qty = serviceQty[service._id] || 1;
+                                const cartItem = getItemInCart(service._id, 'service');
+                                const isInCart = !!cartItem;
+
                                 return (
                                     <div key={service._id} className="bg-white border rounded-xl p-3">
                                         <div className="flex items-center justify-between">
-                                            <div>
+                                            <div className="flex-1">
                                                 <p className="font-medium text-gray-800">{service.serviceName}</p>
                                                 <p className="text-sm text-gray-500">₹{service.servicePrice}</p>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                {/* Qty Controls */}
-                                                <div className="flex items-center gap-1 bg-gray-100 rounded-lg">
+                                                {!isInCart ? (
+                                                    /* Show only Add button */
                                                     <button
-                                                        onClick={() => handleServiceQtyChange(service._id, -1)}
-                                                        className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 rounded-l-lg"
+                                                        onClick={() => handleAddService(service)}
+                                                        className="px-4 py-2 bg-primary-500 text-white text-sm font-medium rounded-lg hover:bg-primary-600"
                                                     >
-                                                        <Minus className="w-4 h-4" />
+                                                        Add
                                                     </button>
-                                                    <span className="w-8 text-center text-sm font-medium">{qty}</span>
-                                                    <button
-                                                        onClick={() => handleServiceQtyChange(service._id, 1)}
-                                                        className="w-8 h-8 flex items-center justify-center text-gray-600 hover:bg-gray-200 rounded-r-lg"
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleAddService(service)}
-                                                    className="px-3 py-2 bg-primary-500 text-white text-sm font-medium rounded-lg hover:bg-primary-600"
-                                                >
-                                                    Add
-                                                </button>
+                                                ) : (
+                                                    /* Show qty controls */
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            onClick={() => cartItem.qty === 1 ? handleDeleteService(service._id) : handleUpdateServiceQty(service, -1)}
+                                                            className="w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-lg"
+                                                        >
+                                                            {cartItem.qty === 1 ? (
+                                                                <Trash2 className="w-4 h-4 text-red-500" />
+                                                            ) : (
+                                                                <Minus className="w-4 h-4" />
+                                                            )}
+                                                        </button>
+                                                        <span className="w-10 text-center text-sm font-semibold">{cartItem.qty}</span>
+                                                        <button
+                                                            onClick={() => handleUpdateServiceQty(service, 1)}
+                                                            className="w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-lg"
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -388,12 +451,12 @@ const ItemSelectionStep = ({
                 )}
             </div>
 
-            {/* Selected Items Preview */}
+            {/* Selected Items Preview - Grouped by item */}
             {selectedItems.length > 0 && (
                 <div className="border-t bg-gray-50 p-4 flex-shrink-0">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-gray-700">
-                            {selectedItems.length} item{selectedItems.length > 1 ? 's' : ''} added
+                            Cart Items
                         </span>
                         <span className="text-sm font-medium text-gray-900">
                             ₹{selectedItems.reduce((sum, item) => sum + item.amount, 0)}
@@ -405,7 +468,7 @@ const ItemSelectionStep = ({
                                 key={index}
                                 className="flex items-center gap-1 bg-white border rounded-full px-2 py-1"
                             >
-                                <span className="text-xs text-gray-700 truncate max-w-[100px]">
+                                <span className="text-xs text-gray-700 truncate max-w-[120px]">
                                     {item.itemName}
                                     {item.serialNumber && ` (${item.serialNumber})`}
                                     {item.qty > 1 && ` x${item.qty}`}
