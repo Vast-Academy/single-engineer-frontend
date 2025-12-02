@@ -224,7 +224,11 @@ const Home = () => {
             </div>
 
             {/* Gross Profit - Highlight */}
-            <div className="bg-gradient-to-r from-primary-500 to-blue-500 rounded-xl p-4 mb-3 shadow-sm">
+            <div className={`rounded-xl p-4 mb-3 shadow-sm ${
+                (metrics?.monthMetrics.grossProfit || 0) >= 0
+                    ? 'bg-gradient-to-r from-primary-500 to-blue-500'
+                    : 'bg-gradient-to-r from-red-500 to-red-600'
+            }`}>
                 <div className="flex items-center justify-between">
                     <div>
                         <p className="text-xs text-white/80">Gross Profit</p>
@@ -232,7 +236,11 @@ const Home = () => {
                     </div>
                     <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
                         <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            {(metrics?.monthMetrics.grossProfit || 0) >= 0 ? (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            ) : (
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            )}
                         </svg>
                     </div>
                 </div>
@@ -295,14 +303,30 @@ const Home = () => {
                 {/* Net Profit */}
                 <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
                     <div className="flex items-center gap-2 mb-1">
-                        <div className="w-6 h-6 bg-emerald-100 rounded flex items-center justify-center">
-                            <svg className="w-3 h-3 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                        <div className={`w-6 h-6 rounded flex items-center justify-center ${
+                            (metrics?.monthMetrics.netProfit || 0) >= 0
+                                ? 'bg-emerald-100'
+                                : 'bg-red-100'
+                        }`}>
+                            <svg className={`w-3 h-3 ${
+                                (metrics?.monthMetrics.netProfit || 0) >= 0
+                                    ? 'text-emerald-600'
+                                    : 'text-red-600'
+                            }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {(metrics?.monthMetrics.netProfit || 0) >= 0 ? (
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                ) : (
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                                )}
                             </svg>
                         </div>
                         <p className="text-xs text-gray-500">Net Profit</p>
                     </div>
-                    <p className="text-sm font-bold text-emerald-600">{formatCurrency(metrics?.monthMetrics.netProfit)}</p>
+                    <p className={`text-sm font-bold ${
+                        (metrics?.monthMetrics.netProfit || 0) >= 0
+                            ? 'text-emerald-600'
+                            : 'text-red-600'
+                    }`}>{formatCurrency(metrics?.monthMetrics.netProfit)}</p>
                 </div>
 
                 {/* Services */}
