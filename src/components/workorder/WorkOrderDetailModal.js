@@ -5,13 +5,13 @@ import ItemSelectionStep from '../bill/steps/ItemSelectionStep';
 import BillSummaryStep from '../bill/steps/BillSummaryStep';
 import PaymentStep from '../bill/steps/PaymentStep';
 import ConfirmationStep from '../bill/steps/ConfirmationStep';
-import Toast from '../common/Toast';
 
 const STEPS = {
     WORK_NOTE_INVENTORY: 1,
     BILL_SUMMARY: 2,
     PAYMENT: 3,
-    CONFIRMATION: 4
+    CONFIRMATION: 4,
+    SUCCESS: 5
 };
 
 const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }) => {
@@ -43,9 +43,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     const [paymentMethod, setPaymentMethod] = useState('cash');
     const [cashReceived, setCashReceived] = useState(0);
 
-    // Toast state
-    const [showToast, setShowToast] = useState(false);
-    const [toastMessage, setToastMessage] = useState('');
+    // Created bill data
+    const [createdBill, setCreatedBill] = useState(null);
 
     // Calculate totals
     const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -115,8 +114,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             setPaymentMethod('cash');
             setCashReceived(0);
             setTransactionId('');
-            setShowToast(false);
-            setToastMessage('');
+            setCreatedBill(null);
             setIsEditingWorkOrder(false);
             const primaryAccount = bankAccounts.find(a => a.isPrimary) || bankAccounts[0];
             setSelectedBankAccount(primaryAccount || null);
@@ -125,7 +123,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // Handle ESC key
     const handleEscKey = useCallback((e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Escape' && currentStep !== STEPS.SUCCESS) {
             if (isEditingWorkOrder) {
                 setIsEditingWorkOrder(false);
                 if (workOrder) {
@@ -158,7 +156,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             const handlePopState = () => {
                 if (currentStep === STEPS.WORK_NOTE_INVENTORY) {
                     onClose();
-                } else {
+                } else if (currentStep !== STEPS.SUCCESS) {
                     handleBack();
                 }
             };
@@ -169,13 +167,13 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // Navigation
     const handleBack = () => {
-        if (currentStep > STEPS.WORK_NOTE_INVENTORY) {
+        if (currentStep > STEPS.WORK_NOTE_INVENTORY && currentStep !== STEPS.SUCCESS) {
             setCurrentStep(prev => prev - 1);
         }
     };
 
     const handleNext = () => {
-        if (currentStep < STEPS.CONFIRMATION) {
+        if (currentStep < STEPS.SUCCESS) {
             setCurrentStep(prev => prev + 1);
         }
     };
@@ -296,6 +294,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             const data = await response.json();
 
             if (data.success) {
+                setCreatedBill(data.bill);
+                setCurrentStep(STEPS.SUCCESS);
                 // Update parent with completed work order
                 if (onUpdate) {
                     onUpdate({
@@ -305,13 +305,6 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                         completedAt: new Date()
                     });
                 }
-
-                // Show toast notification
-                setToastMessage(`Bill ${data.bill.billNumber} created successfully!`);
-                setShowToast(true);
-
-                // Close modal
-                onClose();
             } else {
                 alert(data.message || 'Failed to create bill');
             }
@@ -323,6 +316,11 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         }
     };
 
+    // Handle done
+    const handleDone = () => {
+        onClose();
+    };
+
     // Call customer
     const handleCall = () => {
         if (workOrder?.customer?.phoneNumber) {
@@ -332,7 +330,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // Handle overlay click
     const handleOverlayClick = (e) => {
-        if (e.target === e.currentTarget) {
+        if (e.target === e.currentTarget && currentStep !== STEPS.SUCCESS) {
             if (currentStep === STEPS.WORK_NOTE_INVENTORY) {
                 onClose();
             }
@@ -346,6 +344,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             case STEPS.BILL_SUMMARY: return 'Bill Summary';
             case STEPS.PAYMENT: return 'Payment';
             case STEPS.CONFIRMATION: return 'Confirm Bill';
+            case STEPS.SUCCESS: return 'Success';
             default: return 'Work Order Details';
         }
     };
@@ -452,6 +451,65 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             className="w-full py-3 bg-gray-200 text-gray-800 font-medium rounded-xl hover:bg-gray-300"
                         >
                             Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Success Screen
+    if (currentStep === STEPS.SUCCESS && createdBill) {
+        return (
+            <div className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <div className="flex-1 flex flex-col items-center justify-center p-8">
+                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                            <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-2">Bill Created Successfully!</h2>
+                        <p className="text-gray-500 text-center mb-6">Work order has been completed</p>
+
+                        <div className="bg-gray-100 rounded-xl p-4 w-full max-w-xs mb-4">
+                            <p className="text-xs text-gray-500 mb-1">Bill Number</p>
+                            <p className="text-lg font-bold text-primary-600">{createdBill.billNumber}</p>
+                        </div>
+
+                        <div className="bg-gray-100 rounded-xl p-4 w-full max-w-xs mb-4">
+                            <p className="text-xs text-gray-500 mb-1">Work Order Number</p>
+                            <p className="text-lg font-bold text-gray-800">{workOrder.workOrderNumber}</p>
+                        </div>
+
+                        <div className="w-full max-w-xs space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">Customer</span>
+                                <span className="font-medium text-gray-800">{workOrder.customer?.customerName}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">Total Amount</span>
+                                <span className="font-medium text-gray-800">₹{createdBill.totalAmount}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-500">Paid</span>
+                                <span className="font-medium text-green-600">₹{createdBill.receivedPayment}</span>
+                            </div>
+                            {createdBill.dueAmount > 0 && (
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Due</span>
+                                    <span className="font-medium text-orange-600">₹{createdBill.dueAmount}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="p-4 border-t">
+                        <button
+                            onClick={handleDone}
+                            className="w-full py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600"
+                        >
+                            Done
                         </button>
                     </div>
                 </div>
@@ -703,16 +761,6 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                 )}
             </div>
         </div>
-
-        {/* Toast Notification */}
-        {showToast && (
-            <Toast
-                message={toastMessage}
-                type="success"
-                onClose={() => setShowToast(false)}
-                duration={2000}
-            />
-        )}
         </>
     );
 };
