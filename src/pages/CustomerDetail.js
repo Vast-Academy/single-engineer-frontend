@@ -353,7 +353,7 @@ const CustomerDetail = () => {
                 onClose={() => setShowWorkOrderModal(false)}
                 preSelectedCustomer={customer}
                 onSuccess={handleWorkOrderSuccess}
-                redirectAfterCreate={false}
+                redirectAfterCreate={true}
             />
         </div>
     );

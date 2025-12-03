@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Search, User, Clock, FileText, ChevronRight, Check } from 'lucide-react';
+import { X, Search, User, Clock, FileText, ChevronRight } from 'lucide-react';
 import SummaryApi from '../../common';
 import DatePicker from '../common/DatePicker';
+import Toast from '../common/Toast';
 
 const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess, redirectAfterCreate }) => {
     const navigate = useNavigate();
@@ -21,9 +22,9 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     const [hasScheduledTime, setHasScheduledTime] = useState(false);
     const [scheduleTime, setScheduleTime] = useState('');
 
-    // Success state
-    const [createdWorkOrder, setCreatedWorkOrder] = useState(null);
-    const [showSuccess, setShowSuccess] = useState(false);
+    // Toast state
+    const [showToast, setShowToast] = useState(false);
+    const [toastMessage, setToastMessage] = useState('');
 
     // Get today's date in YYYY-MM-DD format
     const getTodayDate = () => {
@@ -59,8 +60,8 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         setScheduleTime(getCurrentTime());
         setSearchQuery('');
         setCustomers([]);
-        setCreatedWorkOrder(null);
-        setShowSuccess(false);
+        setShowToast(false);
+        setToastMessage('');
     };
 
     // Initialize when modal opens
@@ -75,14 +76,14 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
     // Handle ESC key
     const handleEscKey = useCallback((e) => {
-        if (e.key === 'Escape' && !showSuccess) {
+        if (e.key === 'Escape') {
             if (step === 1 || (step === 2 && preSelectedCustomer)) {
                 onClose();
             } else {
                 handleBack();
             }
         }
-    }, [step, showSuccess, preSelectedCustomer, onClose]);
+    }, [step, preSelectedCustomer, onClose]);
 
     useEffect(() => {
         if (isOpen) {
@@ -96,7 +97,6 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         if (isOpen) {
             window.history.pushState({ modal: true }, '');
             const handlePopState = () => {
-                if (showSuccess) return;
                 if (step === 1 || (step === 2 && preSelectedCustomer)) {
                     onClose();
                 } else {
@@ -106,7 +106,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
             window.addEventListener('popstate', handlePopState);
             return () => window.removeEventListener('popstate', handlePopState);
         }
-    }, [isOpen, step, showSuccess, preSelectedCustomer, onClose]);
+    }, [isOpen, step, preSelectedCustomer, onClose]);
 
     // Fetch customers
     const fetchCustomers = async (query = '') => {
@@ -208,8 +208,22 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
             const data = await response.json();
             if (data.success) {
-                setCreatedWorkOrder(data.workOrder);
-                setShowSuccess(true);
+                // Call onSuccess callback
+                if (onSuccess) {
+                    onSuccess(data.workOrder);
+                }
+
+                // Show toast notification
+                setToastMessage(`Work Order #${data.workOrder.workOrderNumber} created successfully!`);
+                setShowToast(true);
+
+                // Close modal
+                onClose();
+
+                // Redirect if needed
+                if (redirectAfterCreate) {
+                    navigate('/workorders');
+                }
             } else {
                 alert(data.message || 'Failed to create work order');
             }
@@ -218,21 +232,6 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
             alert('Failed to create work order');
         } finally {
             setLoading(false);
-        }
-    };
-
-    // Handle done
-    const handleDone = () => {
-        if (onSuccess && createdWorkOrder) {
-            onSuccess(createdWorkOrder);
-        }
-
-        // Redirect to work orders page if specified
-        if (redirectAfterCreate) {
-            onClose();
-            navigate('/workorders');
-        } else {
-            onClose();
         }
     };
 
@@ -250,7 +249,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
     // Handle overlay click
     const handleOverlayClick = (e) => {
-        if (e.target === e.currentTarget && !showSuccess) {
+        if (e.target === e.currentTarget) {
             if (step === 1 || (step === 2 && preSelectedCustomer)) {
                 onClose();
             }
@@ -259,54 +258,8 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
     if (!isOpen) return null;
 
-    // Success Screen
-    if (showSuccess && createdWorkOrder) {
-        return (
-            <div className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
-                    <div className="flex-1 flex flex-col items-center justify-center p-8">
-                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                            <Check className="w-10 h-10 text-green-500" />
-                        </div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-2">Work Order Created!</h2>
-                        <p className="text-gray-500 text-center mb-6">Your work order has been scheduled</p>
-
-                        <div className="bg-gray-100 rounded-xl p-4 w-full max-w-xs mb-4">
-                            <p className="text-sm text-gray-500 mb-1">Work Order Number</p>
-                            <p className="text-lg font-bold text-primary-600">{createdWorkOrder.workOrderNumber}</p>
-                        </div>
-
-                        <div className="w-full max-w-xs space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-gray-500">Customer</span>
-                                <span className="font-medium text-gray-800">{createdWorkOrder.customer?.customerName}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-gray-500">Scheduled</span>
-                                <span className="font-medium text-gray-800">
-                                    {formatDate(createdWorkOrder.scheduleDate)}
-                                    {createdWorkOrder.hasScheduledTime && createdWorkOrder.scheduleTime && (
-                                        <span className="text-primary-600"> at {createdWorkOrder.scheduleTime}</span>
-                                    )}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="p-4 border-t">
-                        <button
-                            onClick={handleDone}
-                            className="w-full py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600"
-                        >
-                            Done
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
     return (
+        <>
         <div
             className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
@@ -523,6 +476,17 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                 )}
             </div>
         </div>
+
+        {/* Toast Notification */}
+        {showToast && (
+            <Toast
+                message={toastMessage}
+                type="success"
+                onClose={() => setShowToast(false)}
+                duration={2000}
+            />
+        )}
+        </>
     );
 };
 
