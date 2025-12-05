@@ -161,12 +161,77 @@ const Home = () => {
         );
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center py-12">
-                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+    // Skeleton Loader Component
+    const SkeletonLoader = () => (
+        <div className="pb-20 animate-pulse">
+            {/* Month Selector Skeleton */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="col-start-2 bg-white rounded-lg p-2.5 shadow-sm border border-gray-100">
+                    <div className="h-3 bg-gray-200 rounded w-24 mb-2"></div>
+                    <div className="h-7 bg-gray-200 rounded"></div>
+                </div>
             </div>
-        );
+
+            {/* Financial Metrics Skeleton - 6 Cards */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                {[...Array(6)].map((_, index) => (
+                    <div key={index} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-6 h-6 bg-gray-200 rounded"></div>
+                            <div className="h-3 bg-gray-200 rounded w-16"></div>
+                        </div>
+                        <div className="h-4 bg-gray-200 rounded w-20 mt-2"></div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Gross Profit Skeleton - Large Card */}
+            <div className="bg-gray-200 rounded-xl p-4 mb-3 shadow-sm">
+                <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                        <div className="h-3 bg-gray-300 rounded w-28 mb-2"></div>
+                        <div className="h-8 bg-gray-300 rounded w-32"></div>
+                    </div>
+                    <div className="w-10 h-10 bg-gray-300 rounded-lg"></div>
+                </div>
+            </div>
+
+            {/* Current Status Skeleton - 2 Cards */}
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                {[...Array(2)].map((_, index) => (
+                    <div key={index} className="bg-white rounded-lg p-3 shadow-sm border border-gray-100">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gray-200 rounded-lg flex-shrink-0"></div>
+                            <div className="flex-1">
+                                <div className="h-3 bg-gray-200 rounded w-20 mb-1"></div>
+                                <div className="h-5 bg-gray-200 rounded w-12"></div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Work Orders Skeleton */}
+            <div>
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
+                    {[...Array(3)].map((_, index) => (
+                        <div key={index} className="p-3 flex items-center gap-3">
+                            <div className="w-9 h-9 bg-gray-200 rounded-lg flex-shrink-0"></div>
+                            <div className="flex-1">
+                                <div className="h-3 bg-gray-200 rounded w-24 mb-1"></div>
+                                <div className="h-3 bg-gray-200 rounded w-32 mb-1"></div>
+                                <div className="h-3 bg-gray-200 rounded w-40"></div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
+    if (loading) {
+        return <SkeletonLoader />;
     }
 
     return (
