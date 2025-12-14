@@ -118,6 +118,10 @@ const SummaryApi = {
         url: `${backendDomain}/api/bill`,
         method: "put"
     },
+    payCustomerDue: {
+        url: `${backendDomain}/api/bill/customer`,
+        method: "put"
+    },
 
     // ==================== BANK ACCOUNT ====================
     addBankAccount: {

@@ -1,43 +1,70 @@
 import { useState, useEffect, useCallback } from 'react';
 import { requestNotificationPermission, onForegroundMessage } from '../config/firebase';
 import SummaryApi from '../common';
+import { isNative, isWeb } from '../utils/platform';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { apiClient } from '../utils/apiClient';
 
 const useNotifications = (isAuthenticated) => {
-    const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+    const [notificationPermission, setNotificationPermission] = useState(
+        isWeb() && 'Notification' in window ? Notification.permission : 'default'
+    );
     const [fcmToken, setFcmToken] = useState(null);
 
     // Register FCM token with backend
     const registerToken = useCallback(async (token) => {
         try {
-            await fetch(SummaryApi.registerFcmToken.url, {
+            const device = isNative() ? 'android' : (navigator.userAgent.includes('Mobile') ? 'mobile' : 'web');
+
+            await apiClient(SummaryApi.registerFcmToken.url, {
                 method: SummaryApi.registerFcmToken.method,
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include',
                 body: JSON.stringify({
                     token,
-                    device: navigator.userAgent.includes('Mobile') ? 'mobile' : 'web'
+                    device
                 })
             });
-            console.log('FCM token registered successfully');
+            console.log('FCM token registered successfully:', device);
         } catch (error) {
             console.error('Failed to register FCM token:', error);
         }
     }, []);
 
-    // Request notification permission
+    // Request notification permission (supports both web and native)
     const requestPermission = useCallback(async () => {
         try {
-            const token = await requestNotificationPermission();
-            if (token) {
-                setFcmToken(token);
-                setNotificationPermission('granted');
-                await registerToken(token);
-                return true;
+            if (isNative()) {
+                // Native push notifications (Android/iOS)
+                console.log('Requesting native push notification permission');
+
+                // Request permission
+                const permResult = await PushNotifications.requestPermissions();
+
+                if (permResult.receive === 'granted') {
+                    // Register with FCM
+                    await PushNotifications.register();
+                    setNotificationPermission('granted');
+                    return true;
+                } else {
+                    console.log('Push notification permission denied');
+                    setNotificationPermission('denied');
+                    return false;
+                }
+            } else {
+                // Web push notifications
+                console.log('Requesting web push notification permission');
+                const token = await requestNotificationPermission();
+                if (token) {
+                    setFcmToken(token);
+                    setNotificationPermission('granted');
+                    await registerToken(token);
+                    return true;
+                }
+                setNotificationPermission(isWeb() && 'Notification' in window ? Notification.permission : 'denied');
+                return false;
             }
-            setNotificationPermission(Notification.permission);
-            return false;
         } catch (error) {
             console.error('Error requesting notification permission:', error);
             return false;
@@ -51,9 +78,49 @@ const useNotifications = (isAuthenticated) => {
         }
     }, [isAuthenticated, notificationPermission, fcmToken, requestPermission]);
 
-    // Listen for foreground messages
+    // Setup native push notification listeners
     useEffect(() => {
-        if (!isAuthenticated) return;
+        if (!isAuthenticated || !isNative()) return;
+
+        // Listen for registration token
+        const tokenListener = PushNotifications.addListener('registration', (token) => {
+            console.log('Push registration success, token:', token.value);
+            setFcmToken(token.value);
+            registerToken(token.value);
+        });
+
+        // Listen for registration errors
+        const errorListener = PushNotifications.addListener('registrationError', (error) => {
+            console.error('Push registration error:', error);
+        });
+
+        // Listen for push notifications received
+        const notificationListener = PushNotifications.addListener('pushNotificationReceived', (notification) => {
+            console.log('Push notification received:', notification);
+            // Notification is automatically shown by the system
+        });
+
+        // Listen for notification actions
+        const actionListener = PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+            console.log('Push notification action performed:', notification);
+            // Navigate to work orders if needed
+            if (notification.notification?.data?.workOrderId) {
+                window.location.href = '/workorders';
+            }
+        });
+
+        // Cleanup
+        return () => {
+            tokenListener.remove();
+            errorListener.remove();
+            notificationListener.remove();
+            actionListener.remove();
+        };
+    }, [isAuthenticated, registerToken]);
+
+    // Listen for foreground messages (web only)
+    useEffect(() => {
+        if (!isAuthenticated || !isWeb()) return;
 
         const unsubscribe = onForegroundMessage((payload) => {
             console.log('Foreground message received:', payload);
@@ -87,7 +154,7 @@ const useNotifications = (isAuthenticated) => {
         notificationPermission,
         fcmToken,
         requestPermission,
-        isSupported: 'Notification' in window
+        isSupported: isNative() || (isWeb() && 'Notification' in window)
     };
 };
 

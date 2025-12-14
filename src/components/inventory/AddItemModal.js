@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import SummaryApi from '../../common';
+import { getItemsDao } from '../../storage/dao/itemsDao';
+import { pushInventory } from '../../storage/sync/pushInventory';
+import { useSync } from '../../context/SyncContext';
+import { apiClient } from '../../utils/apiClient';
 
 const unitOptions = ['kg', 'piece', 'meter', 'litre', 'box'];
 const warrantyOptions = [
@@ -25,6 +29,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
         purchasePrice: '',
         salePrice: ''
     });
+    const { notifyLocalSave } = useSync();
 
     // Handle ESC key press
     const handleKeyDown = useCallback((e) => {
@@ -117,34 +122,122 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
         setLoading(true);
 
         try {
-            const url = editItem
-                ? `${SummaryApi.updateItem.url}/${editItem._id}`
-                : SummaryApi.addItem.url;
-
-            const method = editItem ? 'PUT' : 'POST';
-
-            const response = await fetch(url, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    ...formData,
-                    mrp: Number(formData.mrp),
-                    purchasePrice: Number(formData.purchasePrice),
-                    salePrice: Number(formData.salePrice)
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                onSuccess(data.item);
-                onClose();
-            } else {
-                alert(data.message || 'Failed to save item');
+            // New item must be online to get real server id immediately
+            if (!editItem && !navigator.onLine) {
+                alert('You are offline. New inventory items can only be added when you are online.');
+                setLoading(false);
+                return;
             }
+
+            const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `item-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const now = new Date().toISOString();
+            let savedItem = null;
+
+            if (!editItem) {
+                // Create directly on server to get real _id
+                const response = await apiClient(SummaryApi.addItem.url, {
+                    method: SummaryApi.addItem.method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        itemName: formData.itemName.trim(),
+                        itemType: formData.itemType,
+                        unit: formData.unit.trim(),
+                        warranty: formData.warranty,
+                        mrp: Number(formData.mrp),
+                        purchasePrice: Number(formData.purchasePrice),
+                        salePrice: Number(formData.salePrice)
+                    })
+                });
+                const data = await response.json();
+                if (!data.success || !data.item?._id) {
+                    throw new Error(data.message || 'Failed to create item on server');
+                }
+                savedItem = {
+                    id: data.item._id,
+                    client_id: data.item._id,
+                    item_type: data.item.itemType || data.item.item_type || formData.itemType,
+                    item_name: data.item.itemName || data.item.item_name || formData.itemName.trim(),
+                    unit: data.item.unit || formData.unit.trim(),
+                    warranty: data.item.warranty || formData.warranty,
+                    mrp: data.item.mrp ?? Number(formData.mrp),
+                    purchase_price: data.item.purchasePrice ?? data.item.purchase_price ?? Number(formData.purchasePrice),
+                    sale_price: data.item.salePrice ?? data.item.sale_price ?? Number(formData.salePrice),
+                    stock_qty: data.item.stockQty ?? data.item.stock_qty ?? 0,
+                    created_by: data.item.createdBy || data.item.created_by || null,
+                    deleted: data.item.deleted || false,
+                    updated_at: data.item.updatedAt || data.item.updated_at || now,
+                    created_at: data.item.createdAt || data.item.created_at || now,
+                    pending_sync: 0,
+                    sync_op: null,
+                    sync_error: null
+                };
+
+                const dao = await getItemsDao();
+                await dao.upsertOne(savedItem);
+            } else {
+                // Edit: update directly on server to avoid pending sync
+                if (!navigator.onLine) {
+                    alert('You are offline. Editing items requires an online connection.');
+                    setLoading(false);
+                    return;
+                }
+
+                const serverId = editItem._id || editItem.id;
+                const response = await apiClient(`${SummaryApi.updateItem.url}/${serverId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        itemName: formData.itemName.trim(),
+                        itemType: formData.itemType,
+                        unit: formData.unit.trim(),
+                        warranty: formData.warranty,
+                        mrp: Number(formData.mrp),
+                        purchasePrice: Number(formData.purchasePrice),
+                        salePrice: Number(formData.salePrice)
+                    })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to update item on server');
+                }
+                savedItem = {
+                    id: serverId,
+                    client_id: editItem?.client_id || serverId,
+                    item_type: formData.itemType,
+                    item_name: formData.itemName.trim(),
+                    unit: formData.unit.trim(),
+                    warranty: formData.warranty,
+                    mrp: Number(formData.mrp),
+                    purchase_price: Number(formData.purchasePrice),
+                    sale_price: Number(formData.salePrice),
+                    stock_qty: editItem?.stockQty || editItem?.stock_qty || 0,
+                    created_by: editItem?.createdBy || editItem?.created_by || null,
+                    deleted: 0,
+                    updated_at: data.item?.updatedAt || data.item?.updated_at || now,
+                    created_at: editItem?.createdAt || editItem?.created_at || now,
+                    pending_sync: 0,
+                    sync_op: null,
+                    sync_error: null
+                };
+
+                const dao = await getItemsDao();
+                await dao.upsertOne(savedItem);
+            }
+
+            onSuccess({
+                _id: savedItem.id,
+                itemType: savedItem.item_type,
+                itemName: savedItem.item_name,
+                unit: savedItem.unit,
+                warranty: savedItem.warranty,
+                mrp: savedItem.mrp,
+                purchasePrice: savedItem.purchase_price,
+                salePrice: savedItem.sale_price,
+                stockQty: savedItem.stock_qty,
+                pendingSync: !!savedItem.pending_sync
+            });
+            onClose();
+            notifyLocalSave();
         } catch (error) {
             console.error('Save item error:', error);
             alert('Failed to save item');
@@ -157,7 +250,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
             <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">

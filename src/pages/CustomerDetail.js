@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Phone, MessageCircle, MapPin, Trash2, Receipt, FileText, Wrench, IndianRupee } from 'lucide-react';
-import SummaryApi from '../common';
 import CreateBillModal from '../components/bill/CreateBillModal';
 import CreateWorkOrderModal from '../components/workorder/CreateWorkOrderModal';
+import { SkeletonCustomerDetailPage } from '../components/common/SkeletonLoaders';
+import { getCustomersDao } from '../storage/dao/customersDao';
+import { pushCustomers } from '../storage/sync/pushCustomers';
+import { useSync } from '../context/SyncContext';
 
 const CustomerDetail = () => {
     const navigate = useNavigate();
     const { customerId } = useParams();
-    const location = useLocation();
 
-    // Customer data from navigation state or will be fetched
-    const [customer, setCustomer] = useState(location.state?.customer || null);
-    const [loading, setLoading] = useState(false);
+    // Customer data - always fetched fresh (no state passing)
+    const [customer, setCustomer] = useState(null);
+    const [loading, setLoading] = useState(true);
     const [formData, setFormData] = useState({
         customerName: '',
         phoneNumber: '',
@@ -24,13 +26,14 @@ const CustomerDetail = () => {
     // Modal states
     const [showBillModal, setShowBillModal] = useState(false);
     const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
+    const { notifyLocalSave, dataVersion } = useSync();
 
-    // Fetch customer if not passed in state
+    // Always fetch customer data fresh on mount (from SQLite only)
     useEffect(() => {
-        if (!customer && customerId) {
+        if (customerId) {
             fetchCustomer();
         }
-    }, [customerId]);
+    }, [customerId, dataVersion]);
 
     // Set form data when customer changes
     useEffect(() => {
@@ -48,13 +51,19 @@ const CustomerDetail = () => {
     const fetchCustomer = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${SummaryApi.getCustomer.url}/${customerId}`, {
-                method: SummaryApi.getCustomer.method,
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                setCustomer(data.customer);
+            const dao = await getCustomersDao();
+            const localCustomer = await dao.getById(customerId);
+
+            if (localCustomer) {
+                setCustomer({
+                    _id: localCustomer.id,
+                    customerName: localCustomer.customer_name,
+                    phoneNumber: localCustomer.phone_number,
+                    whatsappNumber: localCustomer.whatsapp_number,
+                    address: localCustomer.address
+                });
+            } else {
+                setCustomer(null);
             }
         } catch (error) {
             console.error('Fetch customer error:', error);
@@ -106,30 +115,26 @@ const CustomerDetail = () => {
         setLoading(true);
 
         try {
-            const response = await fetch(`${SummaryApi.updateCustomer.url}/${customer._id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    customerName: formData.customerName.trim(),
-                    phoneNumber: formData.phoneNumber.trim(),
-                    whatsappNumber: formData.whatsappNumber.trim(),
-                    address: formData.address.trim()
-                })
+            const dao = await getCustomersDao();
+            await dao.markPendingUpdate(customerId, {
+                customer_name: formData.customerName.trim(),
+                phone_number: formData.phoneNumber.trim(),
+                whatsapp_number: formData.whatsappNumber.trim(),
+                address: formData.address.trim()
             });
 
-            const data = await response.json();
-
-            if (data.success) {
-                setCustomer(data.customer);
-                alert('Customer updated successfully');
-            } else {
-                alert(data.message || 'Failed to update customer');
-            }
+            setCustomer(prev => ({
+                ...(prev || {}),
+                customerName: formData.customerName.trim(),
+                phoneNumber: formData.phoneNumber.trim(),
+                whatsappNumber: formData.whatsappNumber.trim(),
+                address: formData.address.trim()
+            }));
+            alert('Customer updated locally. Syncing...');
+            pushCustomers().catch(() => {});
+            notifyLocalSave();
         } catch (error) {
-            console.error('Update customer error:', error);
+            console.error('Update customer (local) error:', error);
             alert('Failed to update customer');
         } finally {
             setLoading(false);
@@ -138,20 +143,21 @@ const CustomerDetail = () => {
 
     // Handle delete
     const handleDelete = async () => {
+        const hasServerId = customer?._id && !customer._id.startsWith('client-');
+        if (!hasServerId) {
+            alert('Please wait for sync before deleting this customer.');
+            return;
+        }
+
         if (window.confirm(`Are you sure you want to delete "${customer.customerName}"?`)) {
             try {
-                const response = await fetch(`${SummaryApi.deleteCustomer.url}/${customer._id}`, {
-                    method: 'DELETE',
-                    credentials: 'include'
-                });
-                const data = await response.json();
-                if (data.success) {
-                    navigate('/customers', { replace: true });
-                } else {
-                    alert(data.message || 'Failed to delete customer');
-                }
+                const dao = await getCustomersDao();
+                await dao.markPendingDelete(customerId);
+                alert('Customer deleted locally. Syncing...');
+                pushCustomers().catch(() => {});
+                navigate('/customers', { replace: true });
             } catch (error) {
-                console.error('Delete customer error:', error);
+                console.error('Delete customer (local) error:', error);
                 alert('Failed to delete customer');
             }
         }
@@ -159,9 +165,8 @@ const CustomerDetail = () => {
 
     // Navigate to bills
     const handleViewBills = () => {
-        navigate(`/customer/${customer._id}/bills`, {
-            state: { customer }
-        });
+        // Navigate without state - CustomerBills will fetch fresh data
+        navigate(`/customer/${customer._id}/bills`);
     };
 
     // Handle bill creation success
@@ -177,15 +182,16 @@ const CustomerDetail = () => {
     };
 
     if (loading && !customer) {
-        return (
-            <div className="flex items-center justify-center py-12">
-                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-        );
+        return <SkeletonCustomerDetailPage />;
     }
 
     if (!customer) {
-        return null;
+        return (
+            <div className="py-10 text-center text-gray-500">
+                <p className="font-semibold">No local data found.</p>
+                <p className="text-xs text-gray-400">Will update automatically after sync.</p>
+            </div>
+        );
     }
 
     return (

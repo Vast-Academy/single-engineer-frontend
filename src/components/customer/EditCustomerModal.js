@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { X, Phone, MessageCircle, MapPin, Trash2, Receipt, FileText, Wrench } from 'lucide-react';
-import SummaryApi from '../../common';
+import { X, Phone, MessageCircle, MapPin, Trash2 } from 'lucide-react';
+import { getCustomersDao } from '../../storage/dao/customersDao';
+import { pushCustomers } from '../../storage/sync/pushCustomers';
+import { useSync } from '../../context/SyncContext';
 
-const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onCreateBill, onCreateWorkorder }) => {
-    const navigate = useNavigate();
+const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) => {
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         customerName: '',
@@ -13,6 +13,7 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onC
         address: ''
     });
     const [sameAsPhone, setSameAsPhone] = useState(false);
+    const { notifyLocalSave } = useSync();
 
     // Handle ESC key press
     const handleEscKey = useCallback((e) => {
@@ -90,6 +91,8 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onC
         }
     }, [formData.phoneNumber, sameAsPhone]);
 
+    const hasServerId = !!customer?._id && !customer._id.startsWith('client-') && !(customer.id && customer.id.startsWith('client-'));
+
     // Handle submit
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -102,30 +105,29 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onC
         setLoading(true);
 
         try {
-            const response = await fetch(`${SummaryApi.updateCustomer.url}/${customer._id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    customerName: formData.customerName.trim(),
-                    phoneNumber: formData.phoneNumber.trim(),
-                    whatsappNumber: formData.whatsappNumber.trim(),
-                    address: formData.address.trim()
-                })
+            const dao = await getCustomersDao();
+            const localId = customer._id || customer.id;
+            await dao.markPendingUpdate(localId, {
+                customer_name: formData.customerName.trim(),
+                phone_number: formData.phoneNumber.trim(),
+                whatsapp_number: formData.whatsappNumber.trim(),
+                address: formData.address.trim()
             });
 
-            const data = await response.json();
+            onSuccess({
+                ...customer,
+                customerName: formData.customerName.trim(),
+                phoneNumber: formData.phoneNumber.trim(),
+                whatsappNumber: formData.whatsappNumber.trim(),
+                address: formData.address.trim()
+            });
+            onClose();
 
-            if (data.success) {
-                onSuccess(data.customer);
-                onClose();
-            } else {
-                alert(data.message || 'Failed to update customer');
-            }
+            // Attempt push in background
+            pushCustomers().catch(() => {});
+            notifyLocalSave();
         } catch (error) {
-            console.error('Update customer error:', error);
+            console.error('Update customer (local) error:', error);
             alert('Failed to update customer');
         } finally {
             setLoading(false);
@@ -134,19 +136,15 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onC
 
     // Handle delete
     const handleDelete = () => {
+        if (!hasServerId) {
+            alert('Please wait for sync before deleting this customer.');
+            return;
+        }
+
         if (window.confirm(`Are you sure you want to delete "${customer.customerName}"?`)) {
             onDelete(customer);
             onClose();
         }
-    };
-
-    // Navigate to bills
-    const handleViewBills = () => {
-        navigate(`/customer/${customer._id}/bills`, {
-            state: { customer },
-            replace: true
-        });
-        onClose();
     };
 
     if (!isOpen || !customer) return null;
@@ -169,45 +167,6 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete, onC
                 </div>
 
                 <div className="overflow-y-auto max-h-[calc(85vh-140px)]">
-                    {/* Quick Actions */}
-                    <div className="p-4 border-b border-gray-100">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-3 font-medium">Quick Actions</p>
-                        <div className="grid grid-cols-3 gap-3">
-                            {/* View Bills */}
-                            <button
-                                onClick={handleViewBills}
-                                className="flex flex-col items-center gap-2 p-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
-                            >
-                                <Receipt className="w-6 h-6 text-blue-600" />
-                                <span className="text-xs font-medium text-blue-700">View Bills</span>
-                            </button>
-
-                            {/* New Bill */}
-                            <button
-                                onClick={() => {
-                                    onCreateBill(customer);
-                                    onClose();
-                                }}
-                                className="flex flex-col items-center gap-2 p-3 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
-                            >
-                                <FileText className="w-6 h-6 text-green-600" />
-                                <span className="text-xs font-medium text-green-700">New Bill</span>
-                            </button>
-
-                            {/* Workorder */}
-                            <button
-                                onClick={() => {
-                                    onCreateWorkorder(customer);
-                                    onClose();
-                                }}
-                                className="flex flex-col items-center gap-2 p-3 bg-orange-50 rounded-xl hover:bg-orange-100 transition-colors"
-                            >
-                                <Wrench className="w-6 h-6 text-orange-600" />
-                                <span className="text-xs font-medium text-orange-700">Workorder</span>
-                            </button>
-                        </div>
-                    </div>
-
                     {/* Customer Details Form */}
                     <form onSubmit={handleSubmit} className="p-4">
                         <p className="text-xs text-gray-500 uppercase tracking-wide mb-3 font-medium">Customer Details</p>

@@ -7,8 +7,8 @@ const Header = () => {
     const navigate = useNavigate();
 
     return (
-        <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50">
-            <div className="px-4 py-3 flex items-center justify-between">
+        <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50 safe-area-top">
+            <div className="px-4 py-1 flex items-center justify-between">
                 {/* User Profile - Left Side */}
                 <button
                     onClick={() => navigate('/settings')}

@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Printer, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar } from 'lucide-react';
-import SummaryApi from '../common';
+import { ArrowLeft, CreditCard, Printer, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar, Loader2 } from 'lucide-react';
 import PayDueModal from '../components/bill/PayDueModal';
+import { pushBills } from '../storage/sync/pushBills';
+import { useSync } from '../context/SyncContext';
+import { ensureBillsPulled, pullBillsFromBackend } from '../storage/sync/billsSync';
+import { getBillsDao } from '../storage/dao/billsDao';
 
 const BillDetail = () => {
     const navigate = useNavigate();
@@ -10,10 +13,11 @@ const BillDetail = () => {
     const location = useLocation();
     const printRef = useRef(null);
 
-    const [bill, setBill] = useState(location.state?.bill || null);
+    const [bill, setBill] = useState(null);
     const [customer, setCustomer] = useState(location.state?.customer || null);
-    const [loading, setLoading] = useState(!bill);
+    const [loading, setLoading] = useState(true);
     const [showPayDue, setShowPayDue] = useState(false);
+    const { notifyLocalSave } = useSync();
 
     // Smart back navigation - go to customer bills or just go back
     const handleBack = () => {
@@ -33,30 +37,71 @@ const BillDetail = () => {
         }
     };
 
-    // Fetch bill if not passed in state
+    // Always fetch bill from DB to ensure items and payment history are loaded
     useEffect(() => {
-        if (!bill && billId) {
-            fetchBill();
+        if (billId) {
+            fetchBillLocal();
         }
     }, [billId]);
 
-    const fetchBill = async () => {
+    const fetchBillLocal = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${SummaryApi.getBill.url}/${billId}`, {
-                method: SummaryApi.getBill.method,
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                setBill(data.bill);
-                if (data.bill.customer) {
-                    setCustomer(data.bill.customer);
+            await ensureBillsPulled();
+            const dao = await getBillsDao();
+            const localBill = await dao.getById(billId);
+            if (localBill) {
+                setBill({
+                    _id: localBill.id,
+                    billNumber: localBill.bill_number,
+                    subtotal: localBill.subtotal,
+                    discount: localBill.discount,
+                    totalAmount: localBill.total_amount,
+                    receivedPayment: localBill.received_payment,
+                    dueAmount: localBill.due_amount,
+                    paymentMethod: localBill.payment_method,
+                    status: localBill.status,
+                    createdAt: localBill.created_at,
+                    customer: localBill.customer_id ? { _id: localBill.customer_id } : null,
+                    items: (localBill.items || []).map(it => ({
+                        itemType: it.item_type,
+                        itemId: it.item_id,
+                        itemName: it.item_name,
+                        serialNumber: it.serial_number,
+                        qty: it.qty,
+                        price: it.price,
+                        amount: it.amount,
+                        purchasePrice: it.purchase_price
+                    })),
+                    paymentHistory: (localBill.paymentHistory || []).map(p => ({
+                        _id: p.id,
+                        amount: p.amount,
+                        paidAt: p.paid_at,
+                        note: p.note,
+                        pending_sync: p.pending_sync,
+                        sync_error: p.sync_error
+                    }))
+                });
+
+                // If we don't have customer info in state, fetch and set it
+                if (!customer && localBill.customer_id) {
+                    setCustomer({ _id: localBill.customer_id });
                 }
             }
         } catch (error) {
             console.error('Fetch bill error:', error);
         } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRefresh = async () => {
+        setLoading(true);
+        try {
+            await pullBillsFromBackend();
+            await fetchBillLocal();
+        } catch (err) {
+            console.error('Refresh bill error:', err);
             setLoading(false);
         }
     };
@@ -108,7 +153,15 @@ const BillDetail = () => {
 
     // Handle payment success
     const handlePaymentSuccess = (updatedBill) => {
+        // Guard: if no server id, warn and skip attempting payment
+        if (bill && (bill._id?.startsWith('bill-') || bill._id?.startsWith('client-'))) {
+            alert('This bill has not synced yet. Please go online to sync before taking payments.');
+            return;
+        }
+
         setBill(updatedBill);
+        notifyLocalSave();
+        pushBills().catch(() => {});
     };
 
     // Handle Print
@@ -179,7 +232,7 @@ const BillDetail = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            ${bill.items.map((item, index) => `
+                            ${items.map((item, index) => `
                                 <tr>
                                     <td>${index + 1}</td>
                                     <td>
@@ -252,7 +305,7 @@ Customer: ${customer?.customerName || 'Customer'}
 ${customer?.phoneNumber ? `Phone: ${customer.phoneNumber}` : ''}
 
 *Items:*
-${bill.items.map((item, i) => `${i + 1}. ${item.itemName} x${item.qty} = ₹${item.amount}`).join('\n')}
+${(bill?.items || []).map((item, i) => `${i + 1}. ${item.itemName} x${item.qty} = ₹${item.amount}`).join('\n')}
 
 ${bill.discount > 0 ? `Discount: -₹${bill.discount}\n` : ''}
 *Total: ₹${bill.totalAmount}*
@@ -303,12 +356,31 @@ Thank you for your business!
 
     if (!bill) {
         return (
-            <div className="py-4 text-center">
-                <p className="text-gray-500">Bill not found</p>
+            <div className="p-4">
+                <button
+                    onClick={handleBack}
+                    className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-4"
+                >
+                    <ArrowLeft className="w-5 h-5 mr-2" />
+                    Back
+                </button>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border text-center space-y-3">
+                    <p className="text-gray-700 font-semibold">Bill not found locally.</p>
+                    <p className="text-gray-500 text-sm">If recently created, sync may still be pending.</p>
+                    <button
+                        onClick={handleRefresh}
+                        className="inline-flex items-center justify-center px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 text-sm font-semibold"
+                    >
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Refresh from server
+                    </button>
+                </div>
             </div>
         );
     }
 
+    const items = bill.items || [];
+    const paymentHistory = bill.paymentHistory || [];
     const statusInfo = getStatusInfo(bill.status);
     const StatusIcon = statusInfo.icon;
 
@@ -324,7 +396,14 @@ Thank you for your business!
                 </button>
                 <div className="flex-1">
                     <h1 className="text-xl font-bold text-gray-800">Invoice</h1>
-                    <p className="text-gray-500 text-sm">{bill.billNumber}</p>
+                    <div className="flex items-center gap-2">
+                        <p className="text-gray-500 text-sm">{bill.billNumber}</p>
+                        {(bill.pendingSync || bill.syncError) && (
+                            <span className={`px-2 py-0.5 text-[11px] rounded-full font-semibold ${bill.syncError ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {bill.syncError ? '!' : 'Sync'}
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${statusInfo.bg}`}>
                     <StatusIcon className={`w-4 h-4 ${statusInfo.text}`} />
@@ -374,7 +453,7 @@ Thank you for your business!
                 <div className="p-4">
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Items</p>
                     <div className="space-y-3">
-                        {bill.items.map((item, index) => (
+                        {items.map((item, index) => (
                             <div key={index} className="flex items-start justify-between">
                                 <div className="flex-1">
                                     <p className="font-medium text-gray-800">{item.itemName}</p>
@@ -428,11 +507,11 @@ Thank you for your business!
             </div>
 
             {/* Payment History */}
-            {bill.paymentHistory && bill.paymentHistory.length > 0 && (
+            {paymentHistory.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Payment History</p>
                     <div className="space-y-3">
-                        {bill.paymentHistory.map((payment, index) => {
+                        {paymentHistory.map((payment, index) => {
                             // Parse payment note to extract method and remark
                             const isUPI = payment.note?.startsWith('[UPI]');
                             const isCash = payment.note?.startsWith('[Cash]');
@@ -458,7 +537,14 @@ Thank you for your business!
                                 <div key={index} className="py-3 border-b border-gray-100 last:border-0">
                                     <div className="flex items-start justify-between">
                                         <div className="flex-1">
-                                            <p className="text-sm text-gray-800 font-medium">{formatDateTime(payment.paidAt)}</p>
+                                            <p className="text-sm text-gray-800 font-medium flex items-center gap-2">
+                                                {formatDateTime(payment.paidAt)}
+                                                {(payment.pending_sync === 1 || payment.sync_error) && (
+                                                    <span className={`px-2 py-0.5 text-[10px] rounded-full font-semibold ${payment.sync_error ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                        {payment.sync_error ? '!' : 'Sync'}
+                                                    </span>
+                                                )}
+                                            </p>
                                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                                                 <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                                                     isUPI

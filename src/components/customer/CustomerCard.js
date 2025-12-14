@@ -1,6 +1,7 @@
-import { Phone, MapPin, MessageCircle, ChevronRight, IndianRupee } from 'lucide-react';
+import React from 'react';
+import { Phone, MapPin, MessageCircle, ChevronRight } from 'lucide-react';
 
-const CustomerCard = ({ customer, onClick }) => {
+const CustomerCard = React.memo(({ customer, onClick, pendingWorkCount = 0 }) => {
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('en-IN', {
             style: 'currency',
@@ -10,6 +11,9 @@ const CustomerCard = ({ customer, onClick }) => {
     };
 
     const hasDue = customer.totalDue && customer.totalDue > 0;
+    const showPendingBadge = pendingWorkCount > 0;
+    const pendingSync = customer.pendingSync;
+    const syncError = customer.syncError;
 
     return (
         <div
@@ -18,10 +22,27 @@ const CustomerCard = ({ customer, onClick }) => {
         >
             <div className="flex items-start gap-3">
                 {/* Avatar */}
-                <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-primary-600 font-bold text-lg">
-                        {customer.customerName?.charAt(0).toUpperCase() || 'C'}
-                    </span>
+                <div className="relative w-12 h-12 flex-shrink-0">
+                    <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                        <span className="text-primary-600 font-bold text-lg">
+                            {customer.customerName?.charAt(0).toUpperCase() || 'C'}
+                        </span>
+                    </div>
+                    {showPendingBadge && (
+                        <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-red-500 text-white text-xs font-semibold rounded-full flex items-center justify-center leading-none">
+                            {pendingWorkCount}
+                        </span>
+                    )}
+                    {pendingSync && (
+                        <span className="absolute -bottom-1 -right-1 min-w-[20px] h-5 px-1 bg-amber-500 text-white text-[10px] font-semibold rounded-full flex items-center justify-center leading-none">
+                            Sync
+                        </span>
+                    )}
+                    {syncError && (
+                        <span className="absolute -bottom-1 -right-1 min-w-[20px] h-5 px-1 bg-red-600 text-white text-[10px] font-semibold rounded-full flex items-center justify-center leading-none">
+                            !
+                        </span>
+                    )}
                 </div>
 
                 {/* Details */}
@@ -60,6 +81,6 @@ const CustomerCard = ({ customer, onClick }) => {
             </div>
         </div>
     );
-};
+});
 
 export default CustomerCard;

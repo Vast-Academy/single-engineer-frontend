@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
-import SummaryApi from '../../common';
+import { getBankAccountsDao } from '../../storage/dao/bankAccountsDao';
+import { pushBankAccounts } from '../../storage/sync/pushBankAccounts';
+import { useSync } from '../../context/SyncContext';
 
 const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
     const [loading, setLoading] = useState(false);
+    const [formError, setFormError] = useState('');
     const [formData, setFormData] = useState({
         bankName: '',
         accountNumber: '',
@@ -14,6 +17,7 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
     });
 
     const isEditMode = !!account;
+    const { notifyLocalSave } = useSync();
 
     // Handle ESC key
     const handleEscKey = useCallback((e) => {
@@ -87,46 +91,76 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
         if (!formData.bankName.trim() || !formData.accountNumber.trim() ||
             !formData.ifscCode.trim() || !formData.accountHolderName.trim() ||
             !formData.upiId.trim()) {
-            alert('All fields are required');
+            setFormError('All fields are required');
             return;
         }
 
         setLoading(true);
+        setFormError('');
 
         try {
-            const url = isEditMode
-                ? `${SummaryApi.updateBankAccount.url}/${account._id}`
-                : SummaryApi.addBankAccount.url;
+            const dao = await getBankAccountsDao();
+            const now = new Date().toISOString();
 
-            const method = isEditMode ? 'PUT' : 'POST';
+            if (isEditMode) {
+                if (account.pendingSync || (account._id && account._id.startsWith('client-'))) {
+                    throw new Error('Please wait for this account to sync before editing.');
+                }
 
-            const response = await fetch(url, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
+                await dao.markPendingUpdate(account._id, {
+                    bank_name: formData.bankName.trim(),
+                    account_number: formData.accountNumber.trim(),
+                    ifsc_code: formData.ifscCode.trim().toUpperCase(),
+                    account_holder_name: formData.accountHolderName.trim(),
+                    upi_id: formData.upiId.trim().toLowerCase(),
+                    is_primary: formData.isPrimary ? 1 : 0
+                });
+
+                onSuccess({
+                    ...account,
                     bankName: formData.bankName.trim(),
                     accountNumber: formData.accountNumber.trim(),
                     ifscCode: formData.ifscCode.trim().toUpperCase(),
                     accountHolderName: formData.accountHolderName.trim(),
                     upiId: formData.upiId.trim().toLowerCase(),
-                    isPrimary: formData.isPrimary
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                onSuccess(data.bankAccount);
-                onClose();
+                    isPrimary: formData.isPrimary,
+                    pendingSync: true
+                });
             } else {
-                alert(data.message || `Failed to ${isEditMode ? 'update' : 'add'} bank account`);
+                const clientId = `client-bank-${Date.now()}`;
+                await dao.insertLocal({
+                    id: clientId,
+                    client_id: clientId,
+                    bank_name: formData.bankName.trim(),
+                    account_number: formData.accountNumber.trim(),
+                    ifsc_code: formData.ifscCode.trim().toUpperCase(),
+                    account_holder_name: formData.accountHolderName.trim(),
+                    upi_id: formData.upiId.trim().toLowerCase(),
+                    is_primary: formData.isPrimary ? 1 : 0,
+                    created_at: now,
+                    updated_at: now,
+                    sync_op: 'create'
+                });
+
+                onSuccess({
+                    _id: clientId,
+                    bankName: formData.bankName.trim(),
+                    accountNumber: formData.accountNumber.trim(),
+                    ifscCode: formData.ifscCode.trim().toUpperCase(),
+                    accountHolderName: formData.accountHolderName.trim(),
+                    upiId: formData.upiId.trim().toLowerCase(),
+                    isPrimary: formData.isPrimary,
+                    pendingSync: true,
+                    syncError: null
+                });
             }
+
+            notifyLocalSave();
+            pushBankAccounts().catch(() => {});
+            onClose();
         } catch (error) {
             console.error('Bank account error:', error);
-            alert(`Failed to ${isEditMode ? 'update' : 'add'} bank account`);
+            setFormError(error?.message || `Failed to ${isEditMode ? 'update' : 'add'} bank account`);
         } finally {
             setLoading(false);
         }
@@ -250,6 +284,14 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
                         </div>
                     </label>
                 </form>
+
+                {formError && (
+                    <div className="px-4 pb-3">
+                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                            {formError}
+                        </div>
+                    </div>
+                )}
 
                 {/* Footer */}
                 <div className="flex gap-3 p-4 border-t">

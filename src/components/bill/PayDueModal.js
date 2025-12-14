@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Banknote, Smartphone, QrCode, ChevronDown, AlertCircle, CheckCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import SummaryApi from '../../common';
+import { apiClient } from '../../utils/apiClient';
 
 const PayDueModal = ({ isOpen, onClose, bill, onSuccess }) => {
     const [loading, setLoading] = useState(false);
@@ -51,9 +52,8 @@ const PayDueModal = ({ isOpen, onClose, bill, onSuccess }) => {
     const fetchBankAccounts = async () => {
         setLoadingBanks(true);
         try {
-            const response = await fetch(SummaryApi.getAllBankAccounts.url, {
-                method: SummaryApi.getAllBankAccounts.method,
-                credentials: 'include'
+            const response = await apiClient(SummaryApi.getAllBankAccounts.url, {
+                method: SummaryApi.getAllBankAccounts.method
             });
             const data = await response.json();
             if (data.success) {
@@ -187,12 +187,11 @@ const PayDueModal = ({ isOpen, onClose, bill, onSuccess }) => {
                 }
             }
 
-            const response = await fetch(`${SummaryApi.updateBillPayment.url}/${bill._id}/payment`, {
+            const response = await apiClient(`${SummaryApi.updateBillPayment.url}/${bill._id}/payment`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include',
                 body: JSON.stringify({
                     amount: numAmount,
                     note: paymentNote,

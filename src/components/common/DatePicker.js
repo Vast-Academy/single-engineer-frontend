@@ -30,9 +30,10 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
     // Set initial month/year when value changes
     useEffect(() => {
         if (value) {
-            const date = new Date(value);
-            setCurrentMonth(date.getMonth());
-            setCurrentYear(date.getFullYear());
+            // FIXED: Parse date string manually to avoid timezone issues
+            const [year, month] = value.split('-').map(Number);
+            setCurrentMonth(month - 1);
+            setCurrentYear(year);
         }
     }, [value]);
 
@@ -71,11 +72,12 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
     // Check if date is selected
     const isDateSelected = (day) => {
         if (!value) return false;
-        const selected = new Date(value);
+        // FIXED: Parse date string manually to avoid timezone issues
+        const [year, month, dayStr] = value.split('-').map(Number);
         return (
-            selected.getDate() === day &&
-            selected.getMonth() === currentMonth &&
-            selected.getFullYear() === currentYear
+            dayStr === day &&
+            month - 1 === currentMonth &&
+            year === currentYear
         );
     };
 
@@ -93,8 +95,11 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
     const handleDateClick = (day) => {
         if (isDateDisabled(day)) return;
 
-        const date = new Date(currentYear, currentMonth, day);
-        const formattedDate = date.toISOString().split('T')[0];
+        // FIXED: Format date manually to avoid timezone issues
+        const year = currentYear;
+        const month = String(currentMonth + 1).padStart(2, '0');
+        const dayStr = String(day).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${dayStr}`;
         onChange(formattedDate);
         setIsOpen(false);
     };
@@ -129,7 +134,9 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
     // Format display value
     const formatDisplayValue = () => {
         if (!value) return '';
-        const date = new Date(value);
+        // FIXED: Parse date string manually to avoid timezone issues
+        const [year, month, day] = value.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
         return date.toLocaleDateString('en-IN', {
             day: 'numeric',
             month: 'short',
@@ -266,7 +273,11 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
                             onClick={() => {
                                 const today = new Date();
                                 if (!minDateObj || today >= minDateObj) {
-                                    onChange(today.toISOString().split('T')[0]);
+                                    // FIXED: Format date manually to avoid timezone issues
+                                    const year = today.getFullYear();
+                                    const month = String(today.getMonth() + 1).padStart(2, '0');
+                                    const day = String(today.getDate()).padStart(2, '0');
+                                    onChange(`${year}-${month}-${day}`);
                                     setIsOpen(false);
                                 }
                             }}
@@ -279,7 +290,11 @@ const DatePicker = ({ value, onChange, minDate, placeholder = 'Select date' }) =
                             onClick={() => {
                                 const tomorrow = new Date();
                                 tomorrow.setDate(tomorrow.getDate() + 1);
-                                onChange(tomorrow.toISOString().split('T')[0]);
+                                // FIXED: Format date manually to avoid timezone issues
+                                const year = tomorrow.getFullYear();
+                                const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                                const day = String(tomorrow.getDate()).padStart(2, '0');
+                                onChange(`${year}-${month}-${day}`);
                                 setIsOpen(false);
                             }}
                             className="flex-1 py-2 text-sm font-medium text-primary-600 hover:bg-primary-50 rounded-lg"

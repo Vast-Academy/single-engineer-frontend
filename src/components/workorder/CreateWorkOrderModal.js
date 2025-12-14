@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Search, User, Clock, FileText, ChevronRight } from 'lucide-react';
 import SummaryApi from '../../common';
+import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
+import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
+import { useSync } from '../../context/SyncContext';
+import { apiClient } from '../../utils/apiClient';
+// import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
+// import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
+// import { useSync } from '../../context/SyncContext';
 import DatePicker from '../common/DatePicker';
 import Toast from '../common/Toast';
 
@@ -9,6 +16,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     const navigate = useNavigate();
     const [step, setStep] = useState(1); // 1: Customer, 2: Schedule, 3: Confirm
     const [loading, setLoading] = useState(false);
+    const { notifyLocalSave, bumpDataVersion } = useSync();
 
     // Customer search
     const [customers, setCustomers] = useState([]);
@@ -112,17 +120,30 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     const fetchCustomers = async (query = '') => {
         setSearchLoading(true);
         try {
+            // First load from local cache for instant display
+            const { getCustomersDao } = await import('../../storage/dao/customersDao');
+            const dao = await getCustomersDao();
+            const localList = await dao.list({ search: query, limit: 200, offset: 0 });
+            const mappedLocal = localList.map(c => ({
+                _id: c.id,
+                customerName: c.customer_name,
+                phoneNumber: c.phone_number,
+                whatsappNumber: c.whatsapp_number,
+                address: c.address
+            }));
+            setCustomers(mappedLocal);
+
+            // Then refresh from backend in background
             const url = query
                 ? `${SummaryApi.searchCustomers.url}?q=${encodeURIComponent(query)}`
                 : SummaryApi.getAllCustomers.url;
 
-            const response = await fetch(url, {
-                method: 'GET',
-                credentials: 'include'
+            const response = await apiClient(url, {
+                method: 'GET'
             });
             const data = await response.json();
             if (data.success) {
-                setCustomers(data.customers || []);
+                setCustomers(data.customers || mappedLocal);
             }
         } catch (error) {
             console.error('Fetch customers error:', error);
@@ -191,44 +212,64 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
         setLoading(true);
         try {
-            const response = await fetch(SummaryApi.createWorkOrder.url, {
-                method: SummaryApi.createWorkOrder.method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    customerId: selectedCustomer._id,
-                    note: note.trim(),
-                    hasScheduledTime,
-                    scheduleDate,
-                    scheduleTime: hasScheduledTime ? formatTimeForDisplay(scheduleTime) : ''
-                })
-            });
+            const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `wo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const now = new Date().toISOString();
+            const local = {
+                id: clientId,
+                client_id: clientId,
+                customer_id: selectedCustomer._id || selectedCustomer.id,
+                work_order_number: '',
+                note: note.trim(),
+                schedule_date: scheduleDate,
+                has_scheduled_time: hasScheduledTime,
+                schedule_time: hasScheduledTime ? formatTimeForDisplay(scheduleTime) : '',
+                status: 'pending',
+                completed_at: null,
+                notification_sent: 0,
+                bill_id: null,
+                created_by: null,
+                deleted: 0,
+                updated_at: now,
+                created_at: now,
+                pending_sync: 1,
+                sync_op: 'create',
+                sync_error: null
+            };
 
-            const data = await response.json();
-            if (data.success) {
-                // Call onSuccess callback
-                if (onSuccess) {
-                    onSuccess(data.workOrder);
-                }
+            const dao = await getWorkOrdersDao();
+            await dao.insertLocal(local);
 
-                // Show toast notification
-                setToastMessage(`Work Order #${data.workOrder.workOrderNumber} created successfully!`);
-                setShowToast(true);
+            const mappedForUI = {
+                _id: local.id,
+                workOrderNumber: local.work_order_number,
+                note: local.note,
+                scheduleDate: local.schedule_date,
+                hasScheduledTime: local.has_scheduled_time,
+                scheduleTime: local.schedule_time,
+                status: local.status,
+                completedAt: local.completed_at,
+                billId: local.bill_id,
+                pendingSync: true,
+                syncError: null,
+                customer: selectedCustomer
+            };
 
-                // Close modal
-                onClose();
-
-                // Redirect if needed
-                if (redirectAfterCreate) {
-                    navigate('/workorders');
-                }
-            } else {
-                alert(data.message || 'Failed to create work order');
+            if (onSuccess) {
+                onSuccess(mappedForUI);
             }
+
+            setToastMessage(`Work Order created locally. Syncing...`);
+            setShowToast(true);
+            notifyLocalSave();
+            bumpDataVersion();
+            onClose();
+            if (redirectAfterCreate) {
+                navigate('/workorders');
+            }
+            // Attempt push in background
+            pushWorkOrders().catch(() => {});
         } catch (error) {
-            console.error('Create work order error:', error);
+            console.error('Create work order (local) error:', error);
             alert('Failed to create work order');
         } finally {
             setLoading(false);
@@ -266,7 +307,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         >
             <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
                 {/* Header */}
-                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0">
+                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
                     {step > 1 && !(step === 2 && preSelectedCustomer) && (
                         <button
                             onClick={handleBack}

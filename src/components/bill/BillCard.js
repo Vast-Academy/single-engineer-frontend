@@ -34,6 +34,7 @@ const BillCard = ({ bill, onClick }) => {
     };
 
     const statusStyles = getStatusStyles(bill.status);
+    const items = bill.items || [];
 
     return (
         <div
@@ -49,6 +50,16 @@ const BillCard = ({ bill, onClick }) => {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyles.bg} ${statusStyles.text}`}>
                             {statusStyles.label}
                         </span>
+                        {bill.pendingSync && (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                                Sync
+                            </span>
+                        )}
+                        {bill.syncError && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                                !
+                            </span>
+                        )}
                         {bill.workOrderId && (
                             <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium flex items-center gap-1">
                                 <ClipboardList className="w-3 h-3" />
@@ -64,7 +75,7 @@ const BillCard = ({ bill, onClick }) => {
 
                     {/* Items Count */}
                     <p className="text-xs text-gray-400 mt-1">
-                        {bill.items.length} {bill.items.length === 1 ? 'item' : 'items'}
+                        {items.length} {items.length === 1 ? 'item' : 'items'}
                     </p>
                 </div>
 

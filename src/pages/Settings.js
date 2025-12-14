@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft, Trash2 } from 'lucide-react';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
+import { isNative } from '../utils/platform';
+import SummaryApi from '../common';
+import { apiClient } from '../utils/apiClient';
 
 const Settings = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
+    const [isClearingData, setIsClearingData] = useState(false);
 
     // Show logout confirmation modal
     const handleLogout = () => {
@@ -24,6 +29,116 @@ const Settings = () => {
         }
         setIsLoggingOut(false);
         setShowLogoutConfirm(false);
+    };
+
+    // Clear all data and logout (for development/testing)
+    const handleClearAllData = () => {
+        setShowClearDataConfirm(true);
+    };
+
+    const confirmClearAllData = async () => {
+        setIsClearingData(true);
+        const errors = [];
+
+        try {
+            // Step 1: Clear SQLite database first (before logout)
+            if (isNative()) {
+                try {
+                    const { getOrCreateDatabase } = await import('../storage/sqliteClient');
+                    const db = await getOrCreateDatabase();
+
+                    // Clear all tables using db.run (not execute)
+                    const tables = [
+                        'customers', 'items', 'serial_numbers', 'stock_history',
+                        'services', 'work_orders', 'bills', 'bill_items',
+                        'payment_history', 'bank_accounts', 'fcm_tokens',
+                        'dashboard_metrics', 'metadata'
+                    ];
+
+                    for (const table of tables) {
+                        try {
+                            await db.run(`DELETE FROM ${table}`, []);
+                            console.log(`✓ Cleared table: ${table}`);
+                        } catch (err) {
+                            console.warn(`Failed to clear ${table}:`, err);
+                            errors.push(`${table}: ${err.message}`);
+                        }
+                    }
+
+                    console.log('✓ All local database tables cleared');
+                } catch (dbError) {
+                    console.error('Database clear error:', dbError);
+                    errors.push(`Database: ${dbError.message}`);
+                }
+            }
+
+            // Step 2: Clear Firebase auth (sign out)
+            try {
+                const { signOut } = await import('firebase/auth');
+                const { auth } = await import('../config/firebase');
+                await signOut(auth);
+                console.log('✓ Firebase signed out');
+            } catch (authError) {
+                console.error('Firebase signout error:', authError);
+                errors.push(`Firebase: ${authError.message}`);
+            }
+
+            // Step 3: Clear Google Native SDK (if initialized)
+            if (isNative()) {
+                try {
+                    const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+                    await GoogleAuth.signOut();
+                    await GoogleAuth.disconnect();
+                    console.log('✓ Google Auth cleared');
+                } catch (googleError) {
+                    // Ignore if not initialized
+                    console.warn('Google Auth clear skipped:', googleError.message);
+                }
+            }
+
+            // Step 4: Clear Capacitor Preferences (WebView storage)
+            if (isNative()) {
+                try {
+                    const { Preferences } = await import('@capacitor/preferences');
+                    await Preferences.clear();
+                    console.log('✓ Capacitor Preferences cleared');
+                } catch (prefError) {
+                    console.error('Preferences clear error:', prefError);
+                    errors.push(`Preferences: ${prefError.message}`);
+                }
+            }
+
+            // Step 5: Clear backend session cookie
+            try {
+                await apiClient(SummaryApi.logout.url, {
+                    method: SummaryApi.logout.method
+                });
+                console.log('✓ Backend session cleared');
+            } catch (backendError) {
+                // Non-critical, continue
+                console.warn('Backend logout failed:', backendError);
+            }
+
+            // Show summary
+            if (errors.length > 0) {
+                console.warn('Clear data completed with errors:', errors);
+                alert(`Data cleared with some warnings:\n${errors.join('\n')}\n\nApp will reload now.`);
+            } else {
+                console.log('✅ All data cleared successfully!');
+            }
+
+            // Reload the app (give time for logs)
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 500);
+
+        } catch (error) {
+            console.error('Critical clear data error:', error);
+            alert(`Failed to clear data: ${error.message}\n\nPlease try again or reinstall the app.`);
+        } finally {
+            setIsClearingData(false);
+            setShowClearDataConfirm(false);
+        }
     };
 
     const SettingItem = ({ icon: Icon, label, onClick, iconBg, iconColor, showChevron = true }) => (
@@ -135,6 +250,26 @@ const Settings = () => {
                 />
             </div>
 
+            {/* Developer/Testing Section (Only for Development) */}
+            <SectionHeader title="Developer Tools" />
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+                <button
+                    onClick={handleClearAllData}
+                    disabled={isClearingData}
+                    className="w-full flex items-center justify-between p-4 hover:bg-red-50 active:bg-red-100 transition-colors disabled:opacity-50"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
+                            <Trash2 className="w-5 h-5 text-red-600" />
+                        </div>
+                        <span className="text-red-600 font-medium text-sm">Clear All Data & Logout</span>
+                    </div>
+                    {isClearingData && (
+                        <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                    )}
+                </button>
+            </div>
+
             {/* Logout Button */}
             <button
                 onClick={handleLogout}
@@ -170,6 +305,18 @@ const Settings = () => {
                 loading={isLoggingOut}
                 confirmText="Logout"
                 loadingText="Logging out..."
+            />
+
+            {/* Clear All Data Confirmation Modal */}
+            <DeleteConfirmModal
+                isOpen={showClearDataConfirm}
+                onClose={() => setShowClearDataConfirm(false)}
+                onConfirm={confirmClearAllData}
+                title="⚠️ Clear All Data"
+                message="This will DELETE ALL local data (customers, bills, work orders, inventory) and log you out. This action cannot be undone. Use only for testing/development."
+                loading={isClearingData}
+                confirmText="Yes, Clear Everything"
+                loadingText="Clearing data..."
             />
             </div>
         </div>

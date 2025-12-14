@@ -5,6 +5,10 @@ import ItemSelectionStep from '../bill/steps/ItemSelectionStep';
 import BillSummaryStep from '../bill/steps/BillSummaryStep';
 import PaymentStep from '../bill/steps/PaymentStep';
 import ConfirmationStep from '../bill/steps/ConfirmationStep';
+import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
+import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
+import { useSync } from '../../context/SyncContext';
+import { apiClient } from '../../utils/apiClient';
 
 const STEPS = {
     WORK_NOTE_INVENTORY: 1,
@@ -46,6 +50,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     // Created bill data
     const [createdBill, setCreatedBill] = useState(null);
 
+    const { notifyLocalSave, bumpDataVersion } = useSync();
+
     // Calculate totals
     const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
     const totalAmount = Math.max(0, subtotal - discount);
@@ -68,39 +74,68 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     const fetchData = async () => {
         setLoadingData(true);
         try {
-            const [itemsRes, servicesRes, bankRes] = await Promise.all([
-                fetch(SummaryApi.getAllItems.url, {
-                    method: SummaryApi.getAllItems.method,
-                    credentials: 'include'
-                }),
-                fetch(SummaryApi.getAllServices.url, {
-                    method: SummaryApi.getAllServices.method,
-                    credentials: 'include'
-                }),
-                fetch(SummaryApi.getAllBankAccounts.url, {
-                    method: SummaryApi.getAllBankAccounts.method,
-                    credentials: 'include'
-                })
-            ]);
+            // FIXED: Load from local SQLite for instant display
+            const { getItemsDao } = await import('../../storage/dao/itemsDao');
+            const { getServicesDao } = await import('../../storage/dao/servicesDao');
+            const { getSerialNumbersDao } = await import('../../storage/dao/serialNumbersDao');
+            const { getBankAccountsDao } = await import('../../storage/dao/bankAccountsDao');
 
-            const itemsData = await itemsRes.json();
-            const servicesData = await servicesRes.json();
-            const bankData = await bankRes.json();
+            const itemsDao = await getItemsDao();
+            const servicesDao = await getServicesDao();
+            const serialDao = await getSerialNumbersDao();
+            const bankDao = await getBankAccountsDao();
 
-            if (itemsData.success) {
-                setItems(itemsData.items || []);
-            }
-            if (servicesData.success) {
-                setServices(servicesData.services || []);
-            }
-            if (bankData.success) {
-                const accounts = bankData.bankAccounts || [];
-                setBankAccounts(accounts);
-                const primaryAccount = accounts.find(a => a.isPrimary) || accounts[0];
-                setSelectedBankAccount(primaryAccount || null);
-            }
+            // Load items
+            const itemRows = await itemsDao.list({ limit: 1000, offset: 0 });
+            const mappedItems = await Promise.all(itemRows.map(async (item) => {
+                const serialNumbers = await serialDao.listByItem(item.id);
+                return {
+                    _id: item.id,
+                    itemType: item.item_type,
+                    itemName: item.item_name,
+                    unit: item.unit,
+                    warranty: item.warranty,
+                    mrp: item.mrp,
+                    purchasePrice: item.purchase_price,
+                    salePrice: item.sale_price,
+                    stockQty: item.stock_qty,
+                    serialNumbers: serialNumbers.map(sn => ({
+                        serialNo: sn.serial_no,
+                        status: sn.status,
+                        customerName: sn.customer_name,
+                        billNumber: sn.bill_number,
+                        addedAt: sn.added_at
+                    }))
+                };
+            }));
+            setItems(mappedItems);
+
+            // Load services
+            const serviceRows = await servicesDao.list({ limit: 1000, offset: 0 });
+            const mappedServices = serviceRows.map(s => ({
+                _id: s.id,
+                serviceName: s.service_name,
+                servicePrice: s.service_price
+            }));
+            setServices(mappedServices);
+
+            // Load bank accounts
+            const bankRows = await bankDao.list({ limit: 100, offset: 0 });
+            const mappedBanks = bankRows.map(b => ({
+                _id: b.id,
+                bankName: b.bank_name,
+                accountNumber: b.account_number,
+                ifscCode: b.ifsc_code,
+                accountHolderName: b.account_holder_name,
+                upiId: b.upi_id,
+                isPrimary: b.is_primary === 1
+            }));
+            setBankAccounts(mappedBanks);
+            const primaryAccount = mappedBanks.find(a => a.isPrimary) || mappedBanks[0];
+            setSelectedBankAccount(primaryAccount || null);
+
         } catch (error) {
-            console.error('Fetch data error:', error);
+            console.error('Fetch data (local) error:', error);
         } finally {
             setLoadingData(false);
         }
@@ -224,24 +259,32 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
         setLoading(true);
         try {
-            const response = await fetch(`${SummaryApi.updateWorkOrder.url}/${workOrder._id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify(editData)
+            const dao = await getWorkOrdersDao();
+            await dao.markPendingUpdate(workOrder._id, {
+                note: editData.note,
+                schedule_date: editData.scheduleDate,
+                has_scheduled_time: editData.hasScheduledTime,
+                schedule_time: editData.hasScheduledTime ? editData.scheduleTime : '',
+                status: workOrder.status
             });
 
-            const data = await response.json();
-            if (data.success) {
-                if (onUpdate) {
-                    onUpdate(data.workOrder);
-                }
-                setIsEditingWorkOrder(false);
-            } else {
-                alert(data.message || 'Failed to update work order');
+            const updatedLocal = {
+                ...workOrder,
+                note: editData.note,
+                scheduleDate: editData.scheduleDate,
+                hasScheduledTime: editData.hasScheduledTime,
+                scheduleTime: editData.hasScheduledTime ? editData.scheduleTime : '',
+                pendingSync: true
+            };
+
+            if (onUpdate) {
+                onUpdate(updatedLocal);
             }
+            setIsEditingWorkOrder(false);
+            alert('Work order saved locally. Syncing...');
+            notifyLocalSave();
+            bumpDataVersion();
+            pushWorkOrders().catch(() => {});
         } catch (error) {
             console.error('Update work order error:', error);
             alert('Failed to update work order');
@@ -253,23 +296,25 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     // Delete work order
     const handleDelete = async () => {
         if (!workOrder) return;
+        const hasServerId = workOrder._id && !workOrder._id.startsWith('client-');
 
         setLoading(true);
         try {
-            const response = await fetch(`${SummaryApi.deleteWorkOrder.url}/${workOrder._id}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-
-            const data = await response.json();
-            if (data.success) {
-                if (onDelete) {
-                    onDelete(workOrder._id);
-                }
-                onClose();
-            } else {
-                alert(data.message || 'Failed to delete work order');
+            if (!hasServerId) {
+                alert('Please wait for sync before deleting this work order.');
+                setLoading(false);
+                return;
             }
+
+            const dao = await getWorkOrdersDao();
+            await dao.markPendingDelete(workOrder._id);
+            if (onDelete) {
+                onDelete(workOrder._id);
+            }
+            notifyLocalSave();
+            bumpDataVersion();
+            pushWorkOrders().catch(() => {});
+            onClose();
         } catch (error) {
             console.error('Delete error:', error);
             alert('Failed to delete work order');
@@ -289,12 +334,11 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                 qty: item.qty || 1
             }));
 
-            const response = await fetch(SummaryApi.createBill.url, {
+            const response = await apiClient(SummaryApi.createBill.url, {
                 method: SummaryApi.createBill.method,
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                credentials: 'include',
                 body: JSON.stringify({
                     customerId: workOrder.customer._id,
                     items: billItems,
@@ -323,15 +367,31 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     };
 
     // Handle done
-    const handleDone = () => {
+    const handleDone = async () => {
         // Update parent with completed work order when user clicks Done
         if (onUpdate && createdBill) {
-            onUpdate({
+            const completedAt = new Date();
+            const updated = {
                 ...workOrder,
                 status: 'completed',
                 billId: createdBill._id,
-                completedAt: new Date()
-            });
+                completedAt,
+                pendingSync: true
+            };
+            onUpdate(updated);
+            try {
+                const dao = await getWorkOrdersDao();
+                await dao.markPendingUpdate(workOrder._id, {
+                    status: 'completed',
+                    bill_id: createdBill._id,
+                    completed_at: completedAt.toISOString()
+                });
+                notifyLocalSave();
+                bumpDataVersion();
+                pushWorkOrders().catch(() => {});
+            } catch (err) {
+                console.error('Mark complete (local) error:', err);
+            }
         }
         onClose();
     };
@@ -442,6 +502,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // If work order is already completed, show simple view (not billing flow)
     const isCompleted = workOrder.status === 'completed';
+    const showPendingBadge = workOrder.status === 'pending' && currentStep !== STEPS.SUCCESS;
 
     // For completed work orders, show a simple detail view
     if (isCompleted) {
@@ -554,7 +615,15 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             <ArrowLeft className="w-5 h-5 text-gray-600" />
                         </button>
                     )}
-                    <h2 className="text-lg font-semibold text-gray-800 flex-1">{getStepTitle()}</h2>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <h2 className="text-lg font-semibold text-gray-800 truncate">{getStepTitle()}</h2>
+                        {showPendingBadge && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-xs font-semibold rounded-full">
+                                <span className="w-2 h-2 bg-red-500 rounded-full" />
+                                Pending
+                            </span>
+                        )}
+                    </div>
                     <button
                         onClick={onClose}
                         className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"

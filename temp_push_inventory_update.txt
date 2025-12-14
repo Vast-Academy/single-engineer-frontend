@@ -1,0 +1,8 @@
+Files to update:
+- pushInventory.js: Replace all fetch() calls with apiClient()
+- pushBankAccounts.js: Replace all fetch() calls with apiClient()
+
+Pattern to replace:
+fetch(url, { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', body })
+=>
+apiClient(url, { method, body })

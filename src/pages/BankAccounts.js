@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Building2 } from 'lucide-react';
-import SummaryApi from '../common';
 import BankAccountCard from '../components/bank/BankAccountCard';
 import BankAccountModal from '../components/bank/BankAccountModal';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
+import { SkeletonBankAccountsPage } from '../components/common/SkeletonLoaders';
+import { getBankAccountsDao } from '../storage/dao/bankAccountsDao';
+import { pullBankAccounts } from '../storage/sync/bankAccountsSync';
+import { pushBankAccounts } from '../storage/sync/pushBankAccounts';
+import { useSync } from '../context/SyncContext';
 
 const BankAccounts = () => {
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const { notifyLocalSave } = useSync();
 
     // Modal states
     const [showModal, setShowModal] = useState(false);
@@ -20,25 +25,45 @@ const BankAccounts = () => {
     const [accountToDelete, setAccountToDelete] = useState(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
-    // Fetch accounts on mount
+    // Fetch accounts on mount (local-first)
     useEffect(() => {
-        fetchAccounts();
+        const bootstrap = async () => {
+            setLoading(true);
+            try {
+                await fetchAccountsFromLocal(true);
+                pullBankAccounts().then(() => fetchAccountsFromLocal(true)).catch(() => {});
+            } catch (err) {
+                console.error('Bank accounts bootstrap error:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        bootstrap();
     }, []);
 
-    const fetchAccounts = async () => {
+    const mapAccount = (acc) => ({
+        _id: acc.id,
+        bankName: acc.bank_name,
+        accountNumber: acc.account_number,
+        ifscCode: acc.ifsc_code,
+        accountHolderName: acc.account_holder_name,
+        upiId: acc.upi_id,
+        isPrimary: !!acc.is_primary,
+        pendingSync: acc.pending_sync === 1,
+        syncError: acc.sync_error || null
+    });
+
+    const fetchAccountsFromLocal = async (reset = false) => {
         try {
-            const response = await fetch(SummaryApi.getAllBankAccounts.url, {
-                method: SummaryApi.getAllBankAccounts.method,
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                setAccounts(data.bankAccounts);
-            }
+            if (reset) setLoading(true);
+            const dao = await getBankAccountsDao();
+            const rows = await dao.list({ limit: 500, offset: 0 });
+            const mapped = rows.map(mapAccount);
+            setAccounts(mapped);
         } catch (error) {
-            console.error('Fetch accounts error:', error);
+            console.error('Fetch accounts (local) error:', error);
         } finally {
-            setLoading(false);
+            if (reset) setLoading(false);
         }
     };
 
@@ -56,6 +81,10 @@ const BankAccounts = () => {
 
     // Handle delete - Show confirmation modal
     const handleDelete = (account) => {
+        if (account.pendingSync || (account._id && account._id.startsWith('client-'))) {
+            alert('Please wait for this account to sync before deleting.');
+            return;
+        }
         setAccountToDelete(account);
         setShowDeleteModal(true);
     };
@@ -66,21 +95,16 @@ const BankAccounts = () => {
 
         setIsDeleting(true);
         try {
-            const response = await fetch(`${SummaryApi.deleteBankAccount.url}/${accountToDelete._id}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                setShowDeleteModal(false);
-                setAccountToDelete(null);
-                fetchAccounts(); // Refresh list
-            } else {
-                alert(data.message || 'Failed to delete account');
-            }
+            const dao = await getBankAccountsDao();
+            await dao.markPendingDelete(accountToDelete._id);
+            setShowDeleteModal(false);
+            setAccountToDelete(null);
+            setAccounts(prev => prev.filter(acc => acc._id !== accountToDelete._id));
+            notifyLocalSave();
+            pushBankAccounts().catch(() => {});
         } catch (error) {
             console.error('Delete account error:', error);
-            alert('Failed to delete account');
+            alert('Failed to delete account locally');
         } finally {
             setIsDeleting(false);
         }
@@ -88,26 +112,30 @@ const BankAccounts = () => {
 
     // Handle set primary
     const handleSetPrimary = async (account) => {
+        if (account.pendingSync || (account._id && account._id.startsWith('client-'))) {
+            alert('Please wait for this account to sync before setting primary.');
+            return;
+        }
         try {
-            const response = await fetch(`${SummaryApi.setPrimaryBankAccount.url}/${account._id}/primary`, {
-                method: 'PUT',
-                credentials: 'include'
-            });
-            const data = await response.json();
-            if (data.success) {
-                fetchAccounts(); // Refresh list
-            } else {
-                alert(data.message || 'Failed to set primary account');
-            }
+            const dao = await getBankAccountsDao();
+            await dao.markPendingSetPrimary(account._id);
+            setAccounts(prev => prev.map(acc => ({
+                ...acc,
+                isPrimary: acc._id === account._id,
+                pendingSync: acc._id === account._id ? true : acc.pendingSync,
+                syncError: null
+            })));
+            notifyLocalSave();
+            pushBankAccounts().catch(() => {});
         } catch (error) {
             console.error('Set primary error:', error);
-            alert('Failed to set primary account');
+            alert('Failed to set primary account locally');
         }
     };
 
     // Handle success (add/edit)
     const handleSuccess = () => {
-        fetchAccounts();
+        fetchAccountsFromLocal(true);
     };
 
     return (
@@ -129,9 +157,7 @@ const BankAccounts = () => {
             {/* Content */}
             <div className="">
                 {loading ? (
-                    <div className="flex items-center justify-center py-12">
-                        <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
+                    <SkeletonBankAccountsPage />
                 ) : accounts.length > 0 ? (
                     <div className="space-y-3">
                         {accounts.map(account => (

@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Check, X, Loader2 } from 'lucide-react';
 import SummaryApi from '../../common';
+import { apiClient } from '../../utils/apiClient';
+import { getItemsDao } from '../../storage/dao/itemsDao';
+import { getSerialNumbersDao } from '../../storage/dao/serialNumbersDao';
+import { getStockHistoryDao } from '../../storage/dao/stockHistoryDao';
+import { pushInventory } from '../../storage/sync/pushInventory';
+import { useSync } from '../../context/SyncContext';
 
 const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     const [loading, setLoading] = useState(false);
@@ -8,14 +14,21 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     const [serialInputs, setSerialInputs] = useState([
         { value: '', status: 'idle', message: '', messageType: null }
     ]);
+    const [formError, setFormError] = useState('');
 
     const inputRefs = useRef([]);
+    const { notifyLocalSave } = useSync();
+    const incrementIntervalRef = useRef(null);
+    const decrementIntervalRef = useRef(null);
+    const modalOpenTimeRef = useRef(null);
+    const allowBackCloseRef = useRef(false);
 
     // Reset form when modal opens/closes
     useEffect(() => {
         if (isOpen) {
             setStockQty('');
             setSerialInputs([{ value: '', status: 'idle', message: '', messageType: null }]);
+            setFormError('');
         }
     }, [isOpen]);
 
@@ -29,10 +42,31 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     // Handle browser back button
     useEffect(() => {
         if (isOpen) {
+            modalOpenTimeRef.current = Date.now();
+            allowBackCloseRef.current = false;
+
+            // Allow back button to close modal only after 500ms
+            // This prevents MIUI keyboard-induced popstate from closing the modal
+            const timer = setTimeout(() => {
+                allowBackCloseRef.current = true;
+            }, 500);
+
             window.history.pushState({ modal: true }, '');
-            const handlePopState = () => onClose();
+
+            const handlePopState = () => {
+                const timeSinceOpen = Date.now() - modalOpenTimeRef.current;
+                // Only close if modal has been open for at least 500ms
+                // This prevents keyboard opening from triggering close
+                if (allowBackCloseRef.current && timeSinceOpen > 500) {
+                    onClose();
+                }
+            };
+
             window.addEventListener('popstate', handlePopState);
-            return () => window.removeEventListener('popstate', handlePopState);
+            return () => {
+                clearTimeout(timer);
+                window.removeEventListener('popstate', handlePopState);
+            };
         }
     }, [isOpen, onClose]);
 
@@ -50,6 +84,57 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             onClose();
         }
     };
+
+    // Increment/Decrement handlers with hold functionality
+    const handleIncrement = () => {
+        setStockQty(prev => {
+            const current = Number(prev) || 0;
+            return String(current + 1);
+        });
+    };
+
+    const handleDecrement = () => {
+        setStockQty(prev => {
+            const current = Number(prev) || 0;
+            return current > 1 ? String(current - 1) : '1';
+        });
+    };
+
+    const startIncrement = () => {
+        handleIncrement();
+        incrementIntervalRef.current = setInterval(() => {
+            handleIncrement();
+        }, 100);
+    };
+
+    const stopIncrement = () => {
+        if (incrementIntervalRef.current) {
+            clearInterval(incrementIntervalRef.current);
+            incrementIntervalRef.current = null;
+        }
+    };
+
+    const startDecrement = () => {
+        handleDecrement();
+        decrementIntervalRef.current = setInterval(() => {
+            handleDecrement();
+        }, 100);
+    };
+
+    const stopDecrement = () => {
+        if (decrementIntervalRef.current) {
+            clearInterval(decrementIntervalRef.current);
+            decrementIntervalRef.current = null;
+        }
+    };
+
+    // Cleanup intervals on unmount or close
+    useEffect(() => {
+        return () => {
+            stopIncrement();
+            stopDecrement();
+        };
+    }, []);
 
     // Debounced serial number check
     const checkSerialNumber = useCallback(async (serialNumber, index) => {
@@ -90,46 +175,16 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
         });
 
         try {
-            const response = await fetch(
-                `${SummaryApi.checkSerialNumber.url}/${encodeURIComponent(trimmedSerial)}`,
-                {
-                    method: 'GET',
-                    credentials: 'include'
-                }
-            );
-
-            const data = await response.json();
-
+            const serialDao = await getSerialNumbersDao();
+            const existing = await serialDao.getBySerial(trimmedSerial);
             setSerialInputs(prev => {
                 const updated = [...prev];
-                if (data.exists) {
-                    // Show different messages based on status
-                    let message = '';
-                    let messageType = 'error'; // 'error' or 'warning'
-
-                    if (data.status === 'sold' && data.customerName) {
-                        // Serial number was used in a bill - show customer info
-                        message = `Sold to ${data.customerName}${data.billNumber ? ` (${data.billNumber})` : ''}`;
-                        messageType = 'error';
-                    } else if (data.status === 'sold') {
-                        // Old data - sold but no customer info
-                        message = `Already sold (${data.itemName})`;
-                        messageType = 'error';
-                    } else if (data.status === 'available') {
-                        // Serial number is already in stock
-                        message = `Already in stock (${data.itemName})`;
-                        messageType = 'warning';
-                    } else {
-                        // Fallback message
-                        message = `Already exists (${data.itemName})`;
-                        messageType = 'error';
-                    }
-
+                if (existing) {
                     updated[index] = {
                         ...updated[index],
                         status: 'invalid',
-                        message,
-                        messageType
+                        message: 'Serial already exists locally',
+                        messageType: 'error'
                     };
                 } else {
                     updated[index] = {
@@ -210,6 +265,8 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        const initialId = item._id || item.id;
+
         // For serialized items, check if any serial is invalid
         if (item.itemType === 'serialized') {
             const hasInvalid = serialInputs.some(
@@ -238,34 +295,137 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
         }
 
         setLoading(true);
+        setFormError('');
 
         try {
-            const body = item.itemType === 'generic'
-                ? { stockQty: Number(stockQty) }
-                : { serialNumbers: serialInputs.filter(sn => sn.value.trim() !== '').map(sn => sn.value.trim()) };
+            const itemsDao = await getItemsDao();
+            const stockDao = await getStockHistoryDao();
+            const serialDao = await getSerialNumbersDao();
+            const now = new Date().toISOString();
 
-            const response = await fetch(`${SummaryApi.updateStock.url}/${item._id}/stock`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify(body)
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                onSuccess(data.item);
-                onClose();
-                setStockQty('');
-                setSerialInputs([{ value: '', status: 'idle', message: '', messageType: null }]);
-            } else {
-                alert(data.message || 'Failed to update stock');
+            // Ensure server ID is available; if pending, try to sync first
+            let serverItemId = item._id || item.id;
+            let serverReady = serverItemId && !serverItemId.startsWith('client-') && !item.pendingSync;
+            if (!serverReady) {
+                try {
+                    await pushInventory(); // attempt to sync pending items
+                    let refreshed = await itemsDao.getById(initialId);
+                    if (!refreshed && item.client_id) {
+                        refreshed = await itemsDao.getById(item.client_id);
+                    }
+                    if (refreshed && refreshed.id && !refreshed.id.startsWith('client-')) {
+                        serverItemId = refreshed.id;
+                        serverReady = true;
+                    }
+                } catch (err) {
+                    console.warn('Item sync before stock failed:', err?.message || err);
+                }
             }
+
+            if (!serverReady) {
+                alert('Please wait for this item to finish syncing before adding stock.');
+                setLoading(false);
+                return;
+            }
+
+            if (item.itemType === 'generic') {
+                const qtyNumber = Number(stockQty);
+                if (!qtyNumber || qtyNumber <= 0) {
+                    setLoading(false);
+                    return;
+                }
+                const localId = `client-stock-${Date.now()}`;
+                await stockDao.insertLocal({
+                    id: localId,
+                    item_id: serverItemId,
+                    qty: qtyNumber,
+                    added_at: now,
+                    sync_op: 'create'
+                });
+                await itemsDao.update(
+                    'stock_qty = stock_qty + ?, updated_at = ?',
+                    [qtyNumber, now, serverItemId],
+                    'id = ?'
+                );
+                const updatedItem = {
+                    ...item,
+                    stockQty: (item.stockQty || 0) + qtyNumber,
+                    stockHistory: [
+                        {
+                        _id: localId,
+                        id: localId,
+                        item_id: serverItemId,
+                        qty: qtyNumber,
+                        addedAt: now,
+                        pending_sync: 1
+                        },
+                        ...(item.stockHistory || [])
+                    ]
+                };
+                onSuccess(updatedItem);
+            } else {
+                // Serialized items
+                const validSerials = serialInputs
+                    .map(sn => sn.value.trim())
+                    .filter(Boolean);
+
+                // Optional online duplicate check (non-blocking failure)
+                if (navigator.onLine && validSerials.length) {
+                    try {
+                        const res = await apiClient(`${SummaryApi.checkSerialNumber.url}?serialNo=${encodeURIComponent(validSerials[0])}`, {
+                            method: SummaryApi.checkSerialNumber.method
+                        });
+                        await res.json(); // ignore result; local check already done
+                    } catch (err) {
+                        console.warn('Serial check skipped (offline/server issue)', err);
+                    }
+                }
+
+                const newSerials = [];
+                for (const sn of validSerials) {
+                    const localId = `client-serial-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    const payload = {
+                        id: localId,
+                        item_id: serverItemId,
+                        serial_no: sn,
+                        status: 'available',
+                        added_at: now,
+                        sync_op: 'create'
+                    };
+                    await serialDao.insertLocal(payload);
+                    newSerials.push({
+                        _id: localId,
+                        id: localId,
+                        item_id: serverItemId,
+                        serialNo: sn,
+                        status: 'available',
+                        addedAt: now,
+                        pending_sync: 1
+                    });
+                }
+
+                await itemsDao.update(
+                    'stock_qty = stock_qty + ?, updated_at = ?',
+                    [newSerials.length, now, serverItemId],
+                    'id = ?'
+                );
+
+                const updatedItem = {
+                    ...item,
+                    stockQty: (item.stockQty || 0) + newSerials.length,
+                    serialNumbers: [...(item.serialNumbers || []), ...newSerials]
+                };
+                onSuccess(updatedItem);
+            }
+
+            notifyLocalSave();
+            pushInventory().catch(() => {});
+            onClose();
+            setStockQty('');
+            setSerialInputs([{ value: '', status: 'idle', message: '', messageType: null }]);
         } catch (error) {
             console.error('Update stock error:', error);
-            alert('Failed to update stock');
+            setFormError(error?.message || 'Failed to update stock locally');
         } finally {
             setLoading(false);
         }
@@ -311,10 +471,10 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl h-[85vh] sm:h-[80vh] flex flex-col overflow-hidden">
+            <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-auto max-h-[70vh] sm:max-h-[65vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
                     <h2 className="text-lg font-semibold text-gray-800">Add Stock</h2>
@@ -339,16 +499,50 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                     {item.itemType === 'generic' ? (
                         /* Generic - Quantity */
                         <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Add Quantity</label>
-                            <input
-                                type="number"
-                                value={stockQty}
-                                onChange={(e) => setStockQty(e.target.value)}
-                                required
-                                min="1"
-                                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
-                                placeholder="Enter quantity to add"
-                            />
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Add Quantity</label>
+                            <div className="flex items-center gap-3">
+                                {/* Decrement Button */}
+                                <button
+                                    type="button"
+                                    onMouseDown={startDecrement}
+                                    onMouseUp={stopDecrement}
+                                    onMouseLeave={stopDecrement}
+                                    onTouchStart={startDecrement}
+                                    onTouchEnd={stopDecrement}
+                                    className="w-12 h-12 flex items-center justify-center bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-xl font-bold text-xl transition-colors"
+                                >
+                                    −
+                                </button>
+
+                                {/* Quantity Input */}
+                                <input
+                                    type="number"
+                                    value={stockQty}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (value === '' || Number(value) >= 1) {
+                                            setStockQty(value);
+                                        }
+                                    }}
+                                    required
+                                    min="1"
+                                    className="flex-1 text-center border border-gray-300 rounded-xl px-4 py-3 text-lg font-semibold focus:outline-none focus:border-primary-500"
+                                    placeholder="0"
+                                />
+
+                                {/* Increment Button */}
+                                <button
+                                    type="button"
+                                    onMouseDown={startIncrement}
+                                    onMouseUp={stopIncrement}
+                                    onMouseLeave={stopIncrement}
+                                    onTouchStart={startIncrement}
+                                    onTouchEnd={stopIncrement}
+                                    className="w-12 h-12 flex items-center justify-center bg-primary-500 hover:bg-primary-600 active:bg-primary-700 text-white rounded-xl font-bold text-xl transition-colors"
+                                >
+                                    +
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         /* Serialized - Serial Numbers */
@@ -357,6 +551,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                                 Serial Numbers
                                 <span className="text-xs text-gray-400 ml-2">(Press Enter to add next)</span>
                             </label>
+                            <div className="max-h-[35vh] overflow-y-auto pr-1">
                             {serialInputs.map((serial, index) => (
                                 <div key={index} className="mb-2">
                                     <div className="flex gap-2">
@@ -405,20 +600,26 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                                                     ? 'text-red-800'
                                                     : 'text-orange-800'
                                             }`}>
-                                                {serial.messageType === 'error' ? '⚠️ ' : 'ℹ️ '}
+                                                {serial.messageType === 'error' ? 'Error: ' : 'Warning: '}
                                                 {serial.message}
                                             </p>
                                         </div>
                                     )}
                                 </div>
                             ))}
+                            </div>
                             <button
                                 type="button"
                                 onClick={handleAddSerialField}
-                                className="w-full py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 text-sm hover:border-primary-500 hover:text-primary-500"
+                                className="w-full py-2 mt-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 text-sm hover:border-primary-500 hover:text-primary-500"
                             >
                                 + Add Another Serial Number
                             </button>
+                        </div>
+                    )}
+                    {formError && (
+                        <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                            {formError}
                         </div>
                     )}
                 </div>

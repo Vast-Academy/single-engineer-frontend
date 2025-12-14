@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, UserPlus, Phone, MessageCircle, MapPin } from 'lucide-react';
-import SummaryApi from '../../common';
+import { X, UserPlus, Phone, MessageCircle, MapPin, ChevronRight, Search } from 'lucide-react';
+import { getCustomersDao } from '../../storage/dao/customersDao';
+import { pushCustomers } from '../../storage/sync/pushCustomers';
+import { useSync } from '../../context/SyncContext';
+import { Capacitor } from '@capacitor/core';
 
 const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
     const [loading, setLoading] = useState(false);
+    const { notifyLocalSave } = useSync();
     const [contactPickerSupported, setContactPickerSupported] = useState(false);
     const [formData, setFormData] = useState({
         customerName: '',
@@ -12,10 +16,16 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
         address: ''
     });
     const [sameAsPhone, setSameAsPhone] = useState(false);
+    const [contactModalOpen, setContactModalOpen] = useState(false);
+    const [contactsList, setContactsList] = useState([]);
+    const [contactsLoading, setContactsLoading] = useState(false);
+    const [contactSearch, setContactSearch] = useState('');
 
     // Check Contact Picker API support
     useEffect(() => {
         if ('contacts' in navigator && 'ContactsManager' in window) {
+            setContactPickerSupported(true);
+        } else if (Capacitor.isNativePlatform()) {
             setContactPickerSupported(true);
         }
     }, []);
@@ -68,26 +78,74 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
     // Pick contact from phone
     const handlePickContact = async () => {
         try {
-            const props = ['name', 'tel'];
-            const opts = { multiple: false };
+            // Native (Capacitor) path
+            if (Capacitor.isNativePlatform()) {
+                const { Contacts } = await import('@capacitor-community/contacts');
 
-            const contacts = await navigator.contacts.select(props, opts);
+                // Permissions
+                const permStatus = await Contacts.checkPermissions();
+                if (permStatus?.contacts !== 'granted') {
+                    const req = await Contacts.requestPermissions();
+                    if (req?.contacts !== 'granted') {
+                        console.warn('Contacts permission denied');
+                        return;
+                    }
+                }
 
-            if (contacts && contacts.length > 0) {
-                const contact = contacts[0];
-                const name = contact.name?.[0] || '';
-                const phone = contact.tel?.[0] || '';
+                setContactsLoading(true);
+                const result = await Contacts.getContacts({
+                    projection: {
+                        name: true,
+                        phones: true
+                    }
+                });
+            const list = (result?.contacts || [])
+                .map(c => {
+                    const rawName = c.displayName || c.name?.[0] || c.name || '';
+                    const name = typeof rawName === 'string' ? rawName : (rawName.display || rawName.given || '');
+                    const phone = (c.phoneNumbers || c.phones || [])
+                        .map(p => p.number)
+                        .find(Boolean) || '';
+                    return { name: name || '', phone };
+                })
+                .filter(c => c.name || c.phone);
+                setContactsList(list);
+                setContactsLoading(false);
+                setContactModalOpen(true);
+                return;
+            }
 
-                setFormData(prev => ({
-                    ...prev,
-                    customerName: name,
-                    phoneNumber: phone
-                }));
+            // Web Contact Picker API
+            if ('contacts' in navigator && 'ContactsManager' in window) {
+                const props = ['name', 'tel'];
+                const opts = { multiple: false };
+                const contacts = await navigator.contacts.select(props, opts);
+                if (contacts && contacts.length > 0) {
+                    const list = contacts.map(c => {
+                        const rawName = c.name?.[0] || '';
+                        const name = typeof rawName === 'string' ? rawName : (rawName.display || rawName.given || '');
+                        const phone = c.tel?.[0] || '';
+                        return { name: name || '', phone };
+                    }).filter(c => c.name || c.phone);
+                    setContactsList(list);
+                    setContactModalOpen(true);
+                }
             }
         } catch (error) {
             console.error('Contact picker error:', error);
-            // User cancelled or error occurred
+            setContactsLoading(false);
         }
+    };
+
+    const handleContactSelect = (contact) => {
+        setFormData(prev => ({
+            ...prev,
+            customerName: contact.name || prev.customerName,
+            phoneNumber: contact.phone || prev.phoneNumber,
+            whatsappNumber: sameAsPhone ? (contact.phone || prev.phoneNumber) : prev.whatsappNumber
+        }));
+        setContactModalOpen(false);
+        setContactSearch('');
     };
 
     // Handle form change
@@ -121,7 +179,6 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
         }
     }, [formData.phoneNumber, sameAsPhone]);
 
-    // Handle submit
     const handleSubmit = async (e) => {
         e.preventDefault();
 
@@ -130,33 +187,58 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
             return;
         }
 
+        if (!navigator.onLine) {
+            alert('You are offline. New customers can only be added when you are online.');
+            return;
+        }
+
         setLoading(true);
 
         try {
-            const response = await fetch(SummaryApi.addCustomer.url, {
-                method: SummaryApi.addCustomer.method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    customerName: formData.customerName.trim(),
-                    phoneNumber: formData.phoneNumber.trim(),
-                    whatsappNumber: formData.whatsappNumber.trim(),
-                    address: formData.address.trim()
-                })
+            // Online-only: create directly on server
+            const payload = {
+                customerName: formData.customerName.trim(),
+                phoneNumber: formData.phoneNumber.trim(),
+                whatsappNumber: formData.whatsappNumber.trim(),
+                address: formData.address.trim()
+            };
+
+            const response = await pushCustomers({ directCreate: payload });
+            const created = response?.createdCustomer;
+
+            if (!created?._id) {
+                throw new Error('Failed to create customer on server');
+            }
+
+            // Save to local DB with real _id
+            const dao = await getCustomersDao();
+            await dao.upsertOne({
+                id: created._id,
+                client_id: created._id,
+                customer_name: created.customerName,
+                phone_number: created.phoneNumber,
+                whatsapp_number: created.whatsappNumber || '',
+                address: created.address || '',
+                created_by: created.createdBy || null,
+                deleted: created.deleted || false,
+                updated_at: created.updatedAt || created.createdAt || new Date().toISOString(),
+                created_at: created.createdAt || new Date().toISOString(),
+                pending_sync: 0,
+                sync_op: null,
+                sync_error: null
             });
 
-            const data = await response.json();
-
-            if (data.success) {
-                onSuccess(data.customer);
-                onClose();
-            } else {
-                alert(data.message || 'Failed to add customer');
-            }
+            onSuccess({
+                _id: created._id,
+                customerName: created.customerName,
+                phoneNumber: created.phoneNumber,
+                whatsappNumber: created.whatsappNumber || '',
+                address: created.address || ''
+            });
+            onClose();
+            notifyLocalSave();
         } catch (error) {
-            console.error('Add customer error:', error);
+            console.error('Add customer (local) error:', error);
             alert('Failed to add customer');
         } finally {
             setLoading(false);
@@ -167,7 +249,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
             <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">
@@ -184,27 +266,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
 
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="p-4 overflow-y-auto max-h-[calc(80vh-140px)]">
-                    {/* Contact Picker Button */}
-                    {contactPickerSupported && (
-                        <button
-                            type="button"
-                            onClick={handlePickContact}
-                            className="w-full mb-4 py-3 bg-primary-50 text-primary-600 rounded-xl font-medium hover:bg-primary-100 flex items-center justify-center gap-2"
-                        >
-                            <UserPlus className="w-5 h-5" />
-                            Pick from Contacts
-                        </button>
-                    )}
-                    
-
-                    {!contactPickerSupported && (
-                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
-                            <p className="text-yellow-700 text-sm text-center">
-                                Contact Picker not supported. Please enter details manually.
-                            </p>
-                        </div>
-                    )}
-
+                
                     {/* Customer Name */}
                     <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -279,6 +341,26 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                             placeholder="Enter address (optional)"
                         />
                     </div>
+
+                    {/* Contact Picker Button */}
+                    {contactPickerSupported && (
+                        <button
+                            type="button"
+                            onClick={handlePickContact}
+                            className="w-full mb-4 py-3 bg-primary-50 text-primary-600 rounded-xl font-medium hover:bg-primary-100 flex items-center justify-center gap-2"
+                        >
+                            <UserPlus className="w-5 h-5" />
+                            Pick from Contacts
+                        </button>
+                    )}
+                    
+                    {!contactPickerSupported && (
+                        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
+                            <p className="text-yellow-700 text-sm text-center">
+                                Contact Picker not supported. Please enter details manually.
+                            </p>
+                        </div>
+                    )}
                 </form>
 
                 {/* Footer */}
@@ -299,6 +381,100 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                     </button>
                 </div>
             </div>
+
+            {/* Contacts Modal */}
+            {contactModalOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-[65] flex items-end"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                            setContactModalOpen(false);
+                            setContactSearch('');
+                        }
+                    }}
+                >
+                    <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
+                            <h2 className="text-lg font-semibold text-gray-800">Select Contact</h2>
+                            <button
+                                onClick={() => {
+                                    setContactModalOpen(false);
+                                    setContactSearch('');
+                                }}
+                                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+                            >
+                                <X className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="p-4 border-b flex-shrink-0">
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Search contacts..."
+                                    value={contactSearch}
+                                    onChange={(e) => setContactSearch(e.target.value)}
+                                    className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 pl-10 text-sm focus:outline-none focus:border-primary-500"
+                                />
+                                <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            </div>
+                        </div>
+
+                        {/* Contact List */}
+                        <div className="flex-1 overflow-y-auto">
+                            {contactsLoading ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            ) : contactsList.filter(c => {
+                                const query = contactSearch.toLowerCase();
+                                return (c.name?.toLowerCase().includes(query) || c.phone?.includes(query));
+                            }).length === 0 ? (
+                                <div className="text-center py-12">
+                                    <p className="text-gray-500 text-sm">
+                                        {contactSearch ? 'No contacts found matching your search' : 'No contacts found'}
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {contactsList
+                                        .filter(c => {
+                                            const query = contactSearch.toLowerCase();
+                                            return (c.name?.toLowerCase().includes(query) || c.phone?.includes(query));
+                                        })
+                                        .map((c, idx) => (
+                                            <button
+                                                key={`${c.name}-${c.phone}-${idx}`}
+                                                onClick={() => handleContactSelect(c)}
+                                                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                                            >
+                                                {/* Avatar Circle */}
+                                                <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-primary-600 font-bold text-lg">
+                                                        {c.name?.charAt(0).toUpperCase() || 'C'}
+                                                    </span>
+                                                </div>
+
+                                                {/* Contact Details */}
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-semibold text-gray-800 truncate">
+                                                        {c.name || 'Unnamed'}
+                                                    </p>
+                                                    <p className="text-sm text-gray-500">{c.phone}</p>
+                                                </div>
+
+                                                {/* Chevron */}
+                                                <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                                            </button>
+                                        ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

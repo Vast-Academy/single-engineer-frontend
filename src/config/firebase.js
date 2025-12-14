@@ -1,6 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { isWeb } from '../utils/platformDetection';
+
+/**
+ * Firebase Configuration
+ *
+ * CRITICAL: Firebase is ONLY initialized for Android WebView
+ * Web browsers are BLOCKED and will NOT initialize Firebase
+ */
 
 const firebaseConfig = {
     apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -11,55 +19,50 @@ const firebaseConfig = {
     appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
-// Initialize Firebase
+// BLOCK web browsers from initializing Firebase
+if (isWeb()) {
+    console.warn('🚫 Firebase initialization blocked. This app is Android-only.');
+    throw new Error('Firebase initialization blocked for web browsers. This app only works in Android WebView.');
+}
+
+// Initialize Firebase (Android WebView only)
+console.log('✓ Initializing Firebase for Android WebView...');
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
 
-// Google Auth Provider
-export const googleProvider = new GoogleAuthProvider();
-
-// Initialize Firebase Cloud Messaging
-let messaging = null;
-try {
-    messaging = getMessaging(app);
-} catch (error) {
-    console.log('Firebase Messaging not supported:', error.message);
-}
-
-// Request notification permission and get FCM token
-export const requestNotificationPermission = async () => {
+// Set persistence for Android (local to survive app restarts)
+const initializeAuthPersistence = async () => {
     try {
-        if (!messaging) {
-            console.log('Messaging not initialized');
-            return null;
-        }
-
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') {
-            console.log('Notification permission denied');
-            return null;
-        }
-
-        const token = await getToken(messaging, {
-            vapidKey: process.env.REACT_APP_FIREBASE_VAPID_KEY
-        });
-
-        return token;
+        // Android: Persist to local storage so session survives app restarts
+        await setPersistence(auth, browserLocalPersistence);
+        console.log('Firebase persistence: LOCAL (Android native)');
     } catch (error) {
-        console.error('Error getting FCM token:', error);
-        return null;
+        console.error('Failed to set Firebase persistence:', error);
     }
 };
 
-// Listen for foreground messages
-export const onForegroundMessage = (callback) => {
-    if (!messaging) return () => {};
+// Initialize persistence immediately
+initializeAuthPersistence();
 
-    return onMessage(messaging, (payload) => {
-        callback(payload);
-    });
+// Google Auth Provider
+export const googleProvider = new GoogleAuthProvider();
+
+// Firebase Cloud Messaging is NOT used on Android (uses FCM native plugin)
+// This is only for web, which is now blocked
+let messaging = null;
+
+// Request notification permission (Android uses native FCM plugin)
+export const requestNotificationPermission = async () => {
+    console.log('FCM: Android uses native Capacitor Push Notifications plugin');
+    return null;
+};
+
+// Listen for foreground messages (Android uses native FCM plugin)
+export const onForegroundMessage = (callback) => {
+    console.log('FCM: Android uses native Capacitor Push Notifications plugin');
+    return () => {};
 };
 
 export { messaging };

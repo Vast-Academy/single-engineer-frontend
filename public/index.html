@@ -3,8 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+
+    <!-- Viewport with safe area support for notch/cutout devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- Theme color - Dynamic based on system theme (light/dark) -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1f2937" media="(prefers-color-scheme: dark)" />
+
+    <!-- Mobile Web App Capable - Enable full screen mode -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <!-- iOS Status Bar Style - Show status bar with app content -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
     <meta
       name="description"
       content="Smart business management system that helps you track work, manage tasks, and streamline daily operations with ease."

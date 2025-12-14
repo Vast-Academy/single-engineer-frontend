@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import SummaryApi from '../../common';
+import { getServicesDao } from '../../storage/dao/servicesDao';
+import { pushInventory } from '../../storage/sync/pushInventory';
+import { useSync } from '../../context/SyncContext';
 
 const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => {
     const [loading, setLoading] = useState(false);
+    const { notifyLocalSave } = useSync();
     const [formData, setFormData] = useState({
         serviceName: '',
         servicePrice: ''
@@ -68,32 +72,38 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
         setLoading(true);
 
         try {
-            const url = editService
-                ? `${SummaryApi.updateService.url}/${editService._id}`
-                : SummaryApi.addService.url;
+            const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `svc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const now = new Date().toISOString();
+            const payload = {
+                id: editService?._id || editService?.id || clientId,
+                client_id: editService?.client_id || clientId,
+                service_name: formData.serviceName.trim(),
+                service_price: Number(formData.servicePrice),
+                created_by: null,
+                deleted: 0,
+                updated_at: now,
+                created_at: editService ? editService.createdAt || editService.created_at || now : now,
+                pending_sync: 1,
+                sync_op: editService ? 'update' : 'create',
+                sync_error: null
+            };
 
-            const method = editService ? 'PUT' : 'POST';
-
-            const response = await fetch(url, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    ...formData,
-                    servicePrice: Number(formData.servicePrice)
-                })
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                onSuccess(data.service);
-                onClose();
+            const dao = await getServicesDao();
+            if (editService) {
+                await dao.upsertOne(payload);
             } else {
-                alert(data.message || 'Failed to save service');
+                await dao.insertLocal(payload);
             }
+
+            onSuccess({
+                _id: payload.id,
+                serviceName: payload.service_name,
+                servicePrice: payload.service_price,
+                pendingSync: true
+            });
+            onClose();
+            notifyLocalSave();
+            pushInventory().catch(() => {});
         } catch (error) {
             console.error('Save service error:', error);
             alert('Failed to save service');
@@ -106,7 +116,7 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
             <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh]">

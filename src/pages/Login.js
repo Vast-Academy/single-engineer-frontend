@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
+import logo from '../images/logo.png';
 
 const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
@@ -10,7 +11,7 @@ const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isVisible, setIsVisible] = useState(false);
-    const { loginWithGoogle, user, loading } = useAuth();
+    const { loginWithGoogle, user, loading, logout } = useAuth();
     const navigate = useNavigate();
 
     // Redirect if already logged in
@@ -25,13 +26,16 @@ const Login = () => {
         setTimeout(() => setIsVisible(true), 100);
     }, []);
 
-    // Show loading spinner while checking authentication
+    // Show app logo while checking authentication
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700">
+            <div className="min-h-screen flex items-center justify-center bg-white">
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-white text-lg font-medium">Loading...</p>
+                    <img
+                        src={logo}
+                        alt="App Logo"
+                        className="w-32 h-32 mx-auto animate-pulse"
+                    />
                 </div>
             </div>
         );
@@ -55,6 +59,19 @@ const Login = () => {
     const handleLogin = () => {
         // Dummy for now
         console.log('Login with:', { email, password });
+    };
+
+    const handleForceLogout = async () => {
+        setIsLoading(true);
+        setError('');
+        const result = await logout();
+        if (result.success) {
+            setError('');
+            window.location.reload(); // Force page reload after logout
+        } else {
+            setError('Logout failed. Please try again.');
+        }
+        setIsLoading(false);
     };
 
     return (
@@ -85,6 +102,22 @@ const Login = () => {
                     <div className="px-5 pt-2 pb-6 overflow-y-auto" style={{ maxHeight: 'calc(65vh - 24px)' }}>
                         <h2 className="text-2xl font-bold text-slate-900 mb-1">Login</h2>
                         <p className="text-slate-500 text-sm mb-5">Enter your credentials to continue</p>
+
+                        {/* Already Logged In Warning */}
+                        {user && !loading && (
+                            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-xl">
+                                <p className="text-yellow-800 text-xs text-center mb-2">
+                                    You are already logged in as <strong>{user.displayName || user.email}</strong>
+                                </p>
+                                <button
+                                    onClick={handleForceLogout}
+                                    disabled={isLoading}
+                                    className="w-full bg-yellow-600 text-white text-xs font-semibold py-2 rounded-lg active:scale-98 transition-all disabled:opacity-50"
+                                >
+                                    {isLoading ? 'Logging out...' : 'Not you? Logout'}
+                                </button>
+                            </div>
+                        )}
 
                         {/* Error Message */}
                         {error && (

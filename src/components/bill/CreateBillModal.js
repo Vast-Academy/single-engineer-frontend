@@ -6,6 +6,9 @@ import BillSummaryStep from './steps/BillSummaryStep';
 import PaymentStep from './steps/PaymentStep';
 import ConfirmationStep from './steps/ConfirmationStep';
 import SuccessStep from './steps/SuccessStep';
+import { getBillsDao } from '../../storage/dao/billsDao';
+import { useSync } from '../../context/SyncContext';
+import { apiClient } from '../../utils/apiClient';
 
 const STEPS = {
     ITEM_SELECTION: 1,
@@ -37,6 +40,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
 
     // Created bill data
     const [createdBill, setCreatedBill] = useState(null);
+    const { isOnline } = useSync();
 
     // Calculate totals
     const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -53,40 +57,68 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
     const fetchData = async () => {
         setLoadingData(true);
         try {
-            const [itemsRes, servicesRes, bankRes] = await Promise.all([
-                fetch(SummaryApi.getAllItems.url, {
-                    method: SummaryApi.getAllItems.method,
-                    credentials: 'include'
-                }),
-                fetch(SummaryApi.getAllServices.url, {
-                    method: SummaryApi.getAllServices.method,
-                    credentials: 'include'
-                }),
-                fetch(SummaryApi.getAllBankAccounts.url, {
-                    method: SummaryApi.getAllBankAccounts.method,
-                    credentials: 'include'
-                })
-            ]);
+            // FIXED: Load from local SQLite for instant display
+            const { getItemsDao } = await import('../../storage/dao/itemsDao');
+            const { getServicesDao } = await import('../../storage/dao/servicesDao');
+            const { getSerialNumbersDao } = await import('../../storage/dao/serialNumbersDao');
+            const { getBankAccountsDao } = await import('../../storage/dao/bankAccountsDao');
 
-            const itemsData = await itemsRes.json();
-            const servicesData = await servicesRes.json();
-            const bankData = await bankRes.json();
+            const itemsDao = await getItemsDao();
+            const servicesDao = await getServicesDao();
+            const serialDao = await getSerialNumbersDao();
+            const bankDao = await getBankAccountsDao();
 
-            if (itemsData.success) {
-                setItems(itemsData.items || []);
-            }
-            if (servicesData.success) {
-                setServices(servicesData.services || []);
-            }
-            if (bankData.success) {
-                const accounts = bankData.bankAccounts || [];
-                setBankAccounts(accounts);
-                // Set primary account as default selected
-                const primaryAccount = accounts.find(a => a.isPrimary) || accounts[0];
-                setSelectedBankAccount(primaryAccount || null);
-            }
+            // Load items
+            const itemRows = await itemsDao.list({ limit: 1000, offset: 0 });
+            const mappedItems = await Promise.all(itemRows.map(async (item) => {
+                const serialNumbers = await serialDao.listByItem(item.id);
+                return {
+                    _id: item.id,
+                    itemType: item.item_type,
+                    itemName: item.item_name,
+                    unit: item.unit,
+                    warranty: item.warranty,
+                    mrp: item.mrp,
+                    purchasePrice: item.purchase_price,
+                    salePrice: item.sale_price,
+                    stockQty: item.stock_qty,
+                    serialNumbers: serialNumbers.map(sn => ({
+                        serialNo: sn.serial_no,
+                        status: sn.status,
+                        customerName: sn.customer_name,
+                        billNumber: sn.bill_number,
+                        addedAt: sn.added_at
+                    }))
+                };
+            }));
+            setItems(mappedItems);
+
+            // Load services
+            const serviceRows = await servicesDao.list({ limit: 1000, offset: 0 });
+            const mappedServices = serviceRows.map(s => ({
+                _id: s.id,
+                serviceName: s.service_name,
+                servicePrice: s.service_price
+            }));
+            setServices(mappedServices);
+
+            // Load bank accounts
+            const bankRows = await bankDao.list({ limit: 100, offset: 0 });
+            const mappedBanks = bankRows.map(b => ({
+                _id: b.id,
+                bankName: b.bank_name,
+                accountNumber: b.account_number,
+                ifscCode: b.ifsc_code,
+                accountHolderName: b.account_holder_name,
+                upiId: b.upi_id,
+                isPrimary: b.is_primary === 1
+            }));
+            setBankAccounts(mappedBanks);
+            const primaryAccount = mappedBanks.find(a => a.isPrimary) || mappedBanks[0];
+            setSelectedBankAccount(primaryAccount || null);
+
         } catch (error) {
-            console.error('Fetch data error:', error);
+            console.error('Fetch data (local) error:', error);
         } finally {
             setLoadingData(false);
         }
@@ -175,45 +207,87 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
         setSelectedItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Create bill
+    // Create bill (offline-first)
     const handleCreateBill = async () => {
+        // Require online so bill is created on server immediately
+        if (!isOnline) {
+            alert('Go online to create a bill. Please connect to the internet and try again.');
+            return;
+        }
+
         setLoading(true);
         try {
-            // Prepare items for API
-            const billItems = selectedItems.map(item => ({
-                itemType: item.itemType,
-                itemId: item.itemId,
-                serialNumber: item.serialNumber || null,
-                qty: item.qty || 1
-            }));
+            const payload = {
+                customerId: customer._id,
+                items: selectedItems.map(item => ({
+                    itemType: item.itemType,
+                    itemId: item.itemId,
+                    serialNumber: item.serialNumber || null,
+                    qty: item.qty || 1
+                })),
+                discount,
+                receivedPayment: cashReceived,
+                paymentMethod,
+                workOrderId: workOrderId || null
+            };
 
-            const response = await fetch(SummaryApi.createBill.url, {
+            const response = await apiClient(SummaryApi.createBill.url, {
                 method: SummaryApi.createBill.method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    customerId: customer._id,
-                    items: billItems,
-                    discount,
-                    receivedPayment: cashReceived,
-                    paymentMethod,
-                    workOrderId: workOrderId || null
-                })
+                body: JSON.stringify(payload)
             });
-
             const data = await response.json();
 
-            if (data.success) {
-                setCreatedBill(data.bill);
-                setCurrentStep(STEPS.SUCCESS);
-            } else {
-                alert(data.message || 'Failed to create bill');
+            if (!data.success || !data.bill) {
+                throw new Error(data.message || 'Failed to create bill');
+            }
+
+            const serverBill = data.bill;
+
+            // Persist server bill to local SQLite so detail screens have items/history immediately
+            const dao = await getBillsDao();
+            await dao.upsertMany([serverBill]);
+
+            // Map to UI shape for success screen
+            const mappedBill = {
+                _id: serverBill._id || serverBill.id,
+                billNumber: serverBill.billNumber || serverBill.bill_number || '',
+                subtotal: serverBill.subtotal || 0,
+                discount: serverBill.discount || 0,
+                totalAmount: serverBill.totalAmount || serverBill.total_amount || 0,
+                receivedPayment: serverBill.receivedPayment || serverBill.received_payment || 0,
+                dueAmount: serverBill.dueAmount || serverBill.due_amount || 0,
+                paymentMethod: serverBill.paymentMethod || serverBill.payment_method || 'cash',
+                status: serverBill.status || 'pending',
+                createdAt: serverBill.createdAt || serverBill.created_at,
+                pendingSync: false,
+                items: (serverBill.items || []).map(it => ({
+                    itemType: it.itemType || it.item_type,
+                    itemId: it.itemId || it.item_id,
+                    itemName: it.itemName || it.item_name,
+                    serialNumber: it.serialNumber || it.serial_number,
+                    qty: it.qty || 1,
+                    price: it.price || 0,
+                    amount: it.amount || 0,
+                    purchasePrice: it.purchasePrice || it.purchase_price || 0
+                })),
+                paymentHistory: (serverBill.paymentHistory || serverBill.payment_history || []).map(p => ({
+                    _id: p._id || p.id,
+                    amount: p.amount || 0,
+                    paidAt: p.paidAt || p.paid_at,
+                    note: p.note || '',
+                    pending_sync: 0,
+                    sync_error: null
+                }))
+            };
+
+            setCreatedBill(mappedBill);
+            setCurrentStep(STEPS.SUCCESS);
+            if (onSuccess) {
+                onSuccess(mappedBill);
             }
         } catch (error) {
-            console.error('Create bill error:', error);
-            alert('Failed to create bill');
+            console.error('Create bill (server) error:', error);
+            alert(error.message || 'Failed to create bill');
         } finally {
             setLoading(false);
         }
@@ -248,7 +322,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
         >
             <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-full sm:h-[85vh] flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0">
+                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
                     {currentStep !== STEPS.SUCCESS && currentStep !== STEPS.ITEM_SELECTION && (
                         <button
                             onClick={handleBack}

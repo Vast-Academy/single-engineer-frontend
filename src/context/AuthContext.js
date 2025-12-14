@@ -1,165 +1,252 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import { signInWithPopup, signOut, onIdTokenChanged } from 'firebase/auth';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import {
+    signInWithPopup,
+    signOut,
+    onIdTokenChanged,
+    GoogleAuthProvider,
+    signInWithCredential
+} from 'firebase/auth';
 import { auth, googleProvider } from '../config/firebase';
 import SummaryApi from '../common';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { Capacitor } from '@capacitor/core';
+import { initStorage } from '../storage';
+import authTokenManager from '../utils/authTokenManager';
+import { apiClient } from '../utils/apiClient';
 
 const AuthContext = createContext();
+export const useAuth = () => useContext(AuthContext);
 
-export const useAuth = () => {
-    return useContext(AuthContext);
-};
+// Reliable native detector
+const isNativeApp = () => Capacitor.isNativePlatform();
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const silentAttemptedRef = useRef(false);
 
-    // Listen to Firebase auth state and token changes
+    // Initialize Google Native SDK on startup
     useEffect(() => {
+        if (isNativeApp()) {
+            GoogleAuth.initialize({
+                clientId: process.env.REACT_APP_GOOGLE_WEB_CLIENT_ID,
+                scopes: ["profile", "email"],
+                grantOfflineAccess: true
+            }).catch(err => {
+                console.error("GoogleAuth init failed:", err);
+            });
+        }
+    }, []);
+
+    // Silent native sign-in to restore session without UI
+    const silentNativeSignIn = useCallback(async () => {
+        if (!isNativeApp()) return false;
+        if (auth.currentUser) return true;
+        if (silentAttemptedRef.current) return false;
+        silentAttemptedRef.current = true;
+
+        try {
+            // Try silent methods in order
+            let googleResult = null;
+            if (typeof GoogleAuth.signInSilently === 'function') {
+                googleResult = await GoogleAuth.signInSilently();
+            } else if (typeof GoogleAuth.refresh === 'function') {
+                googleResult = await GoogleAuth.refresh();
+            }
+
+            const idToken = googleResult?.authentication?.idToken || googleResult?.idToken;
+            if (!idToken) {
+                return false;
+            }
+
+            const credential = GoogleAuthProvider.credential(idToken);
+            const firebaseResult = await signInWithCredential(auth, credential);
+            const freshIdToken = await firebaseResult.user.getIdToken();
+            await syncTokenWithBackend(freshIdToken);
+            return true;
+        } catch (err) {
+            console.log("Silent native sign-in failed:", err?.message || err);
+            return false;
+        }
+    }, []);
+
+    // Listen to user/token state
+    useEffect(() => {
+        initStorage().catch(err => console.error("Storage init error:", err));
+
         const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                // User is signed in, get fresh token and sync with backend
-                try {
-                    const idToken = await firebaseUser.getIdToken(true); // force refresh
-                    await syncTokenWithBackend(idToken);
-                } catch (error) {
-                    console.error('Token sync error:', error);
+            if (!firebaseUser) {
+                setUser(null);
+                setLoading(false);
+                // If native, attempt silent sign-in before giving up
+                await silentNativeSignIn();
+                return;
+            }
+
+            try {
+                await initStorage();
+                const idToken = await firebaseUser.getIdToken(true);
+
+                // Validate session with backend
+                const isValid = await syncTokenWithBackend(idToken);
+
+                // If backend rejects the session, sign out
+                if (!isValid) {
+                    console.log("Session invalid, signing out...");
+                    await signOut(auth);
+                    setUser(null);
+                    setLoading(false);
                 }
-            } else {
-                // User is signed out
+            } catch (err) {
+                console.log("Token sync err:", err);
+                // On error, clear the session
+                await signOut(auth).catch(() => {});
                 setUser(null);
                 setLoading(false);
             }
         });
 
-        // Set up token refresh interval (every 55 minutes)
-        const tokenRefreshInterval = setInterval(async () => {
-            const currentUser = auth.currentUser;
-            if (currentUser) {
-                try {
-                    const idToken = await currentUser.getIdToken(true); // force refresh
-                    await syncTokenWithBackend(idToken);
-                    console.log('Token refreshed successfully');
-                } catch (error) {
-                    console.error('Token refresh error:', error);
-                }
-            }
-        }, 55 * 60 * 1000); // 55 minutes
+        return () => unsubscribe();
+    }, [silentNativeSignIn]);
 
-        return () => {
-            unsubscribe();
-            clearInterval(tokenRefreshInterval);
-        };
-    }, []);
-
-    // Sync token with backend (updates cookie)
+    // Send Firebase token to backend => sets cookie session
+    // Returns true if session is valid, false otherwise
     const syncTokenWithBackend = async (idToken) => {
         try {
-            const response = await fetch(SummaryApi.googleAuth.url, {
+            const res = await fetch(SummaryApi.googleAuth.url, {
                 method: SummaryApi.googleAuth.method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ idToken })
             });
 
-            const data = await response.json();
-
+            const data = await res.json();
             if (data.success) {
                 setUser(data.user);
+                return true;
             } else {
                 setUser(null);
+                return false;
             }
-        } catch (error) {
-            console.error('Backend sync error:', error);
+
+        } catch (err) {
+            console.log("Backend sync failed:", err);
             setUser(null);
+            return false;
         } finally {
             setLoading(false);
         }
     };
 
-    // Get fresh token for API calls
-    const getFreshToken = async () => {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-            const idToken = await currentUser.getIdToken(true);
-            await syncTokenWithBackend(idToken);
-            return idToken;
-        }
-        return null;
-    };
-
-    // Google Sign In
+    // Clean, stable Google login
     const loginWithGoogle = async () => {
+        setLoading(true);
+
         try {
-            setLoading(true);
+            let idToken;
 
-            // Sign in with Google popup
-            const result = await signInWithPopup(auth, googleProvider);
+            if (isNativeApp()) {
+                console.log("Native Google Sign-In running");
 
-            // Get ID token
-            const idToken = await result.user.getIdToken();
+                // ALWAYS initialize before using signIn
+                await GoogleAuth.initialize({
+                    clientId: process.env.REACT_APP_GOOGLE_WEB_CLIENT_ID,
+                    scopes: ["profile", "email"],
+                    grantOfflineAccess: true
+                });
 
-            // Send token to backend
-            const response = await fetch(SummaryApi.googleAuth.url, {
+                const googleUser = await GoogleAuth.signIn();
+
+                // Firebase credential
+                const credential = GoogleAuthProvider.credential(
+                    googleUser.authentication.idToken
+                );
+
+                const firebaseResult = await signInWithCredential(auth, credential);
+                idToken = await firebaseResult.user.getIdToken();
+
+                // NOTE: Don't call disconnect() here - it breaks subsequent logins
+                // Only disconnect on logout to clear the account cache
+
+            } else {
+                console.log("Web Google popup running");
+                const result = await signInWithPopup(auth, googleProvider);
+                idToken = await result.user.getIdToken();
+            }
+
+            // Sync with backend
+            const res = await fetch(SummaryApi.googleAuth.url, {
                 method: SummaryApi.googleAuth.method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ idToken })
             });
 
-            const data = await response.json();
-
+            const data = await res.json();
             if (data.success) {
+                await initStorage();
                 setUser(data.user);
-                return { success: true, user: data.user };
-            } else {
-                throw new Error(data.message || 'Authentication failed');
+                return { success: true };
             }
-        } catch (error) {
-            console.error('Google login error:', error);
-            return { success: false, error: error.message };
+
+            return { success: false, error: "Authentication failed" };
+
+        } catch (err) {
+            console.log("Google Login Error:", err);
+            return { success: false, error: err.message };
         } finally {
             setLoading(false);
         }
     };
 
-    // Logout
+    // Logout (native + web)
     const logout = async () => {
         try {
             setLoading(true);
 
-            // Sign out from Firebase
+            if (isNativeApp()) {
+                try {
+                    await GoogleAuth.signOut();
+                    await GoogleAuth.disconnect(); // clears native cache
+                } catch (err) {
+                    console.log("Google native signOut error:", err);
+                }
+            }
+
+            // Sign out from Firebase (clears auth state)
             await signOut(auth);
 
-            // Clear backend session
-            await fetch(SummaryApi.logout.url, {
-                method: SummaryApi.logout.method,
-                credentials: 'include'
-            });
+            // CRITICAL: Clear token cache on logout
+            authTokenManager.clearCache();
+            console.log("✓ Auth token cache cleared");
+
+            // Clear backend session cookie
+            await apiClient(SummaryApi.logout.url, {
+                method: SummaryApi.logout.method
+            }).catch(err => console.log("Backend logout error:", err));
+
+            // Clear Capacitor Preferences (WebView storage)
+            if (isNativeApp()) {
+                try {
+                    const { Preferences } = await import('@capacitor/preferences');
+                    await Preferences.clear();
+                    console.log("WebView storage cleared");
+                } catch (err) {
+                    console.log("Preferences clear error:", err);
+                }
+            }
 
             setUser(null);
             return { success: true };
+
         } catch (error) {
-            console.error('Logout error:', error);
+            console.error("Logout error:", error);
             return { success: false, error: error.message };
         } finally {
             setLoading(false);
         }
     };
 
-    const value = {
-        user,
-        loading,
-        loginWithGoogle,
-        logout,
-        getFreshToken
-    };
-
     return (
-        <AuthContext.Provider value={value}>
+        <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout }}>
             {children}
         </AuthContext.Provider>
     );
