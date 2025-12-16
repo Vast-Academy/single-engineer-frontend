@@ -119,7 +119,7 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
             className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh]">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl modal-shell flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-lg font-semibold text-gray-800">
@@ -134,7 +134,11 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-4">
+                <form
+                    onSubmit={handleSubmit}
+                    className="p-4 overflow-y-auto flex-1"
+                    style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 200px)' }}
+                >
                     {/* Service Name */}
                     <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Service Name</label>
@@ -166,7 +170,7 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
                 </form>
 
                 {/* Footer */}
-                <div className="flex gap-3 p-4 border-t">
+                <div className="flex gap-3 p-4 border-t modal-footer-safe">
                     <button
                         type="button"
                         onClick={onClose}

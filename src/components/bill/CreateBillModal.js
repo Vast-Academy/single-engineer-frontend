@@ -317,10 +317,13 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-full sm:h-[85vh] flex flex-col overflow-hidden">
+            <div
+                className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden modal-shell"
+                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 32px)' }}
+            >
                 {/* Header */}
                 <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
                     {currentStep !== STEPS.SUCCESS && currentStep !== STEPS.ITEM_SELECTION && (
@@ -343,7 +346,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
                 </div>
 
                 {/* Step Content */}
-                <div className="flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto">
                     {currentStep === STEPS.ITEM_SELECTION && (
                         <ItemSelectionStep
                             customer={customer}

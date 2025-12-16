@@ -252,7 +252,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
             className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl modal-shell overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-lg font-semibold text-gray-800">Add Customer</h2>
@@ -265,7 +265,11 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-4 overflow-y-auto max-h-[calc(80vh-140px)]">
+                <form
+                    onSubmit={handleSubmit}
+                    className="p-4 overflow-y-auto"
+                    style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 200px)' }}
+                >
                 
                     {/* Customer Name */}
                     <div className="mb-4">
@@ -364,7 +368,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                 </form>
 
                 {/* Footer */}
-                <div className="flex gap-3 p-4 border-t">
+                <div className="flex gap-3 p-4 border-t modal-footer-safe">
                     <button
                         type="button"
                         onClick={onClose}
@@ -393,7 +397,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                         }
                     }}
                 >
-                    <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                    <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] modal-shell overflow-hidden flex flex-col">
                         {/* Header */}
                         <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
                             <h2 className="text-lg font-semibold text-gray-800">Select Contact</h2>

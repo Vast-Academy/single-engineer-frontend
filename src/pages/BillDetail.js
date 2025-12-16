@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, CreditCard, Printer, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar, Loader2 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import PayDueModal from '../components/bill/PayDueModal';
 import { pushBills } from '../storage/sync/pushBills';
 import { useSync } from '../context/SyncContext';
@@ -17,6 +21,8 @@ const BillDetail = () => {
     const [customer, setCustomer] = useState(location.state?.customer || null);
     const [loading, setLoading] = useState(true);
     const [showPayDue, setShowPayDue] = useState(false);
+    const [sharing, setSharing] = useState(false);
+    const [downloading, setDownloading] = useState(false);
     const { notifyLocalSave } = useSync();
 
     // Smart back navigation - go to customer bills or just go back
@@ -164,6 +170,193 @@ const BillDetail = () => {
         pushBills().catch(() => {});
     };
 
+    // Generate Bill PDF using jsPDF
+    const generateBillPDF = () => {
+        const doc = new jsPDF();
+        const items = bill.items || [];
+        let yPos = 20;
+
+        // Header - Company Name
+        doc.setFontSize(20);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Your Business Name', 105, yPos, { align: 'center' });
+
+        yPos += 8;
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'normal');
+        doc.text('TAX INVOICE', 105, yPos, { align: 'center' });
+
+        // Horizontal line
+        yPos += 5;
+        doc.setLineWidth(0.5);
+        doc.line(20, yPos, 190, yPos);
+        yPos += 10;
+
+        // Bill Info Section
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('BILL TO', 20, yPos);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text('INVOICE DETAILS', 140, yPos);
+
+        yPos += 6;
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(customer?.customerName || 'Customer', 20, yPos);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(bill.billNumber, 140, yPos);
+
+        yPos += 5;
+        doc.setFontSize(10);
+        if (customer?.phoneNumber) {
+            doc.text(customer.phoneNumber, 20, yPos);
+        }
+        doc.text(formatDate(bill.createdAt), 140, yPos);
+
+        yPos += 5;
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Status: ${bill.status.toUpperCase()}`, 140, yPos);
+
+        yPos += 10;
+
+        // Items Table Header
+        doc.setFillColor(245, 245, 245);
+        doc.rect(20, yPos - 5, 170, 8, 'F');
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('#', 22, yPos);
+        doc.text('Description', 35, yPos);
+        doc.text('Qty', 120, yPos, { align: 'center' });
+        doc.text('Rate', 145, yPos, { align: 'right' });
+        doc.text('Amount', 180, yPos, { align: 'right' });
+
+        yPos += 3;
+        doc.setLineWidth(0.3);
+        doc.line(20, yPos, 190, yPos);
+        yPos += 6;
+
+        // Items
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        items.forEach((item, index) => {
+            // Check if we need a new page
+            if (yPos > 270) {
+                doc.addPage();
+                yPos = 20;
+            }
+
+            doc.text(`${index + 1}`, 22, yPos);
+
+            // Item name with wrapping if too long
+            const itemText = item.itemName + (item.serialNumber ? ` (S/N: ${item.serialNumber})` : '');
+            const splitText = doc.splitTextToSize(itemText, 75);
+            doc.text(splitText, 35, yPos);
+
+            doc.text(`${item.qty}`, 120, yPos, { align: 'center' });
+            doc.text(`₹${item.price}`, 145, yPos, { align: 'right' });
+            doc.text(`₹${item.amount}`, 180, yPos, { align: 'right' });
+
+            yPos += 6 * splitText.length;
+
+            // Light separator line
+            doc.setDrawColor(230, 230, 230);
+            doc.line(20, yPos, 190, yPos);
+            yPos += 4;
+        });
+
+        yPos += 5;
+
+        // Totals Section
+        const totalsX = 130;
+        doc.setFontSize(10);
+
+        // Subtotal
+        doc.setFont('helvetica', 'normal');
+        doc.text('Subtotal:', totalsX, yPos);
+        doc.text(`₹${bill.subtotal}`, 180, yPos, { align: 'right' });
+        yPos += 6;
+
+        // Discount if any
+        if (bill.discount > 0) {
+            doc.text('Discount:', totalsX, yPos);
+            doc.text(`-₹${bill.discount}`, 180, yPos, { align: 'right' });
+            yPos += 6;
+        }
+
+        // Total line
+        doc.setLineWidth(0.5);
+        doc.line(totalsX, yPos, 180, yPos);
+        yPos += 6;
+
+        // Total
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text('Total:', totalsX, yPos);
+        doc.text(`₹${bill.totalAmount}`, 180, yPos, { align: 'right' });
+        yPos += 8;
+
+        // Paid
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(0, 150, 0); // Green
+        doc.text('Paid:', totalsX, yPos);
+        doc.text(`₹${bill.receivedPayment}`, 180, yPos, { align: 'right' });
+        yPos += 6;
+
+        // Due if any
+        if (bill.dueAmount > 0) {
+            doc.setTextColor(220, 38, 38); // Red
+            doc.setFont('helvetica', 'bold');
+            doc.text('Balance Due:', totalsX, yPos);
+            doc.text(`₹${bill.dueAmount}`, 180, yPos, { align: 'right' });
+        }
+
+        // Reset text color
+        doc.setTextColor(0, 0, 0);
+
+        // Footer
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.text('Thank you for your business!', 105, 280, { align: 'center' });
+
+        return doc;
+    };
+
+    // Generate PDF blob for reuse across download/share flows
+    const buildPdfBlob = () => {
+        const doc = generateBillPDF();
+        return doc.output('blob');
+    };
+
+    // Convert blob to base64 string for Capacitor Filesystem
+    const blobToBase64 = async (blob) => {
+        const buffer = await blob.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i += 1) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    };
+
+    // Save PDF on native (Android) and return file URI
+    const savePdfNative = async (fileName) => {
+        const blob = buildPdfBlob();
+        const base64 = await blobToBase64(blob);
+
+        const result = await Filesystem.writeFile({
+            path: fileName,
+            data: base64,
+            directory: Directory.Documents
+        });
+
+        return result?.uri;
+    };
+
     // Handle Print
     const handlePrint = () => {
         const printContent = printRef.current;
@@ -290,60 +483,81 @@ const BillDetail = () => {
         printWindow.document.close();
     };
 
-    // Handle Download (same as print but triggers save)
-    const handleDownload = () => {
-        handlePrint(); // For now, same as print - user can save as PDF from print dialog
+    // Handle Download - platform-aware
+    const handleDownload = async () => {
+        const fileName = `Invoice-${bill.billNumber}.pdf`;
+        try {
+            setDownloading(true);
+
+            if (Capacitor.isNativePlatform()) {
+                const uri = await savePdfNative(fileName);
+                alert(`PDF saved to device storage: ${uri || fileName}`);
+            } else {
+                const doc = generateBillPDF();
+                doc.save(fileName);
+            }
+        } catch (error) {
+            console.error('Download PDF error:', error);
+            alert('Failed to download PDF. Please try again.');
+        } finally {
+            setDownloading(false);
+        }
     };
 
-    // Handle Share
+    // Handle Share - platform-aware
     const handleShare = async () => {
-        const shareText = `
-*INVOICE - ${bill.billNumber}*
-Date: ${formatDate(bill.createdAt)}
+        const fileName = `Invoice-${bill.billNumber}.pdf`;
+        try {
+            setSharing(true);
 
-Customer: ${customer?.customerName || 'Customer'}
-${customer?.phoneNumber ? `Phone: ${customer.phoneNumber}` : ''}
+            // Prepare share text
+            const shareText = `Invoice ${bill.billNumber} - ${customer?.customerName || 'Customer'}\nTotal: Rs ${bill.totalAmount}${bill.dueAmount > 0 ? `\nDue: Rs ${bill.dueAmount}` : '\nFully Paid'}`;
 
-*Items:*
-${(bill?.items || []).map((item, i) => `${i + 1}. ${item.itemName} x${item.qty} = ₹${item.amount}`).join('\n')}
+            if (Capacitor.isNativePlatform()) {
+                // Save PDF to device then share using native share sheet
+                const uri = await savePdfNative(fileName);
+                await Share.share({
+                    title: `Invoice - ${bill.billNumber}`,
+                    text: shareText,
+                    url: uri,
+                    files: uri ? [uri] : undefined,
+                    dialogTitle: 'Share Invoice PDF'
+                });
+                return;
+            }
 
-${bill.discount > 0 ? `Discount: -₹${bill.discount}\n` : ''}
-*Total: ₹${bill.totalAmount}*
-Paid: ₹${bill.receivedPayment}
-${bill.dueAmount > 0 ? `*Due: ₹${bill.dueAmount}*` : '✅ Fully Paid'}
+            // Web / PWA path
+            const blob = buildPdfBlob();
+            const file = new File([blob], fileName, { type: 'application/pdf' });
 
-Thank you for your business!
-        `.trim();
-
-        if (navigator.share) {
-            try {
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
                 await navigator.share({
                     title: `Invoice - ${bill.billNumber}`,
-                    text: shareText
+                    text: shareText,
+                    files: [file]
                 });
-            } catch (error) {
-                if (error.name !== 'AbortError') {
-                    // Fallback to WhatsApp
-                    shareToWhatsApp(shareText);
-                }
-            }
-        } else {
-            shareToWhatsApp(shareText);
-        }
-    };
+            } else if (navigator.share) {
+                // Fallback: trigger download then share text only
+                const doc = generateBillPDF();
+                doc.save(fileName);
+                await navigator.share({
+                    title: `Invoice - ${bill.billNumber}`,
+                    text: `${shareText}
 
-    const shareToWhatsApp = (text) => {
-        let phone = '';
-        if (customer?.phoneNumber) {
-            phone = customer.phoneNumber.replace(/\D/g, '');
-            if (!phone.startsWith('91') && phone.length === 10) {
-                phone = '91' + phone;
+PDF downloaded separately.`
+                });
+            } else {
+                // Last resort: just download
+                const doc = generateBillPDF();
+                doc.save(fileName);
+                alert('PDF downloaded. You can share it manually from your Downloads folder.');
             }
+        } catch (error) {
+            console.error('Share PDF error:', error);
+            alert('Unable to share right now. The PDF has been prepared/downloaded.');
+        } finally {
+            setSharing(false);
         }
-        const url = phone
-            ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
-            : `https://wa.me/?text=${encodeURIComponent(text)}`;
-        window.open(url, '_blank');
     };
 
     if (loading) {
@@ -601,19 +815,33 @@ Thank you for your business!
                     {/* Download */}
                     <button
                         onClick={handleDownload}
-                        className="flex flex-col items-center gap-1 py-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+                        disabled={downloading}
+                        className="flex flex-col items-center gap-1 py-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Download className="w-6 h-6 text-blue-600" />
-                        <span className="text-xs font-medium text-blue-700">Download</span>
+                        {downloading ? (
+                            <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                        ) : (
+                            <Download className="w-6 h-6 text-blue-600" />
+                        )}
+                        <span className="text-xs font-medium text-blue-700">
+                            {downloading ? 'Downloading...' : 'Download'}
+                        </span>
                     </button>
 
                     {/* Share */}
                     <button
                         onClick={handleShare}
-                        className="flex flex-col items-center gap-1 py-3 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
+                        disabled={sharing}
+                        className="flex flex-col items-center gap-1 py-3 bg-green-50 rounded-xl hover:bg-green-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Share2 className="w-6 h-6 text-green-600" />
-                        <span className="text-xs font-medium text-green-700">Share</span>
+                        {sharing ? (
+                            <Loader2 className="w-6 h-6 text-green-600 animate-spin" />
+                        ) : (
+                            <Share2 className="w-6 h-6 text-green-600" />
+                        )}
+                        <span className="text-xs font-medium text-green-700">
+                            {sharing ? 'Sharing...' : 'Share'}
+                        </span>
                     </button>
                 </div>
             </div>
@@ -630,3 +858,10 @@ Thank you for your business!
 };
 
 export default BillDetail;
+
+
+
+
+
+
+

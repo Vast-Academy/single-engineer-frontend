@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ClipboardList } from 'lucide-react';
 import WorkOrderDetailModal from '../components/workorder/WorkOrderDetailModal';
+import PasswordSetupPrompt from '../components/auth/PasswordSetupPrompt';
 import { ensureWorkOrdersPulled, pullWorkOrdersFromBackend } from '../storage/sync/workOrdersSync';
 import { getWorkOrdersDao } from '../storage/dao/workOrdersDao';
 import { getCustomersDao } from '../storage/dao/customersDao';
@@ -29,6 +30,9 @@ const Home = () => {
     const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
     const [showWorkOrderDetail, setShowWorkOrderDetail] = useState(false);
     const [pendingWorksLocal, setPendingWorksLocal] = useState([]);
+
+    // Password setup prompt
+    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
 
     // Fetch dashboard metrics
     const loadMetricsFromCache = async (filterType, periodValue, monthValue, yearValue) => {
@@ -105,6 +109,13 @@ const Home = () => {
             pullWorkOrdersFromBackend().then(() => loadPendingWorksLocal()).catch(() => {});
         }, 0);
     }, []);
+
+    // Check if password is set and show prompt
+    useEffect(() => {
+        if (user && !user.isPasswordSet) {
+            setShowPasswordPrompt(true);
+        }
+    }, [user]);
 
     // Handler for Period dropdown (1st dropdown)
     const handlePeriodChange = (e) => {
@@ -679,6 +690,16 @@ const Home = () => {
                 workOrder={selectedWorkOrder}
                 onUpdate={handleWorkOrderUpdate}
                 onDelete={handleWorkOrderDelete}
+            />
+
+            {/* Password Setup Prompt */}
+            <PasswordSetupPrompt
+                isOpen={showPasswordPrompt}
+                onClose={() => setShowPasswordPrompt(false)}
+                onNavigateToSettings={() => {
+                    setShowPasswordPrompt(false);
+                    navigate('/settings');
+                }}
             />
         </div>
     );

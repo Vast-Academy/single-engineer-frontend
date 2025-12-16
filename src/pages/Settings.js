@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft, Trash2 } from 'lucide-react';
+import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft, Trash2, Lock, Key } from 'lucide-react';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
+import SetPasswordModal from '../components/auth/SetPasswordModal';
 import { isNative } from '../utils/platform';
 import SummaryApi from '../common';
 import { apiClient } from '../utils/apiClient';
@@ -14,6 +15,7 @@ const Settings = () => {
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
     const [isClearingData, setIsClearingData] = useState(false);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
 
     // Show logout confirmation modal
     const handleLogout = () => {
@@ -141,7 +143,7 @@ const Settings = () => {
         }
     };
 
-    const SettingItem = ({ icon: Icon, label, onClick, iconBg, iconColor, showChevron = true }) => (
+    const SettingItem = ({ icon: Icon, label, subtitle, badge, onClick, iconBg, iconColor, showChevron = true }) => (
         <button
             onClick={onClick}
             className="w-full flex items-center justify-between p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -150,9 +152,15 @@ const Settings = () => {
                 <div className={`w-9 h-9 ${iconBg} rounded-lg flex items-center justify-center`}>
                     <Icon className={`w-5 h-5 ${iconColor}`} />
                 </div>
-                <span className="text-gray-800 font-medium text-sm">{label}</span>
+                <div className="flex flex-col items-start">
+                    <span className="text-gray-800 font-medium text-sm">{label}</span>
+                    {subtitle && <span className="text-gray-500 text-xs">{subtitle}</span>}
+                </div>
             </div>
-            {showChevron && <ChevronRight className="w-5 h-5 text-gray-400" />}
+            <div className="flex items-center gap-2">
+                {badge}
+                {showChevron && <ChevronRight className="w-5 h-5 text-gray-400" />}
+            </div>
         </button>
     );
 
@@ -223,6 +231,26 @@ const Settings = () => {
                     onClick={() => navigate('/bank-accounts')}
                     iconBg="bg-green-100"
                     iconColor="text-green-600"
+                />
+            </div>
+
+            {/* Security Section */}
+            <SectionHeader title="Security" />
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-2">
+                <SettingItem
+                    icon={Key}
+                    label={user?.isPasswordSet ? "Change Password" : "Set Password"}
+                    subtitle={user?.isPasswordSet
+                        ? "Update your account password"
+                        : "Set a password to enable email login"}
+                    onClick={() => setShowPasswordModal(true)}
+                    iconBg="bg-orange-100"
+                    iconColor="text-orange-600"
+                    badge={!user?.isPasswordSet && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                            Recommended
+                        </span>
+                    )}
                 />
             </div>
 
@@ -317,6 +345,16 @@ const Settings = () => {
                 loading={isClearingData}
                 confirmText="Yes, Clear Everything"
                 loadingText="Clearing data..."
+            />
+
+            {/* Set Password Modal */}
+            <SetPasswordModal
+                isOpen={showPasswordModal}
+                onClose={() => setShowPasswordModal(false)}
+                onSuccess={() => {
+                    // Password set successfully, modal will close automatically
+                }}
+                isChangingPassword={user?.isPasswordSet}
             />
             </div>
         </div>

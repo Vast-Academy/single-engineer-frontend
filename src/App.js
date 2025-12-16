@@ -22,6 +22,7 @@ import { isDatabaseEmpty, initialPullAll } from './storage/sync/initialSync';
 import { isWeb } from './utils/platformDetection';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import logo from './images/logo.png';
+import useViewportCssVars from './hooks/useViewportCssVars';
 // import { useState } from 'react';
 
 /**
@@ -244,6 +245,7 @@ function InitialSyncGate({ children }) {
 }
 
 function App() {
+    useViewportCssVars();
     // CRITICAL: Block web access completely
     // This app ONLY works in Android WebView (Capacitor)
     if (isWeb()) {

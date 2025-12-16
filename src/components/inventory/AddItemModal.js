@@ -253,7 +253,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
             className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl modal-shell overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-lg font-semibold text-gray-800">
@@ -268,7 +268,11 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-4 overflow-y-auto max-h-[calc(90vh-130px)]">
+                <form
+                    onSubmit={handleSubmit}
+                    className="p-4 overflow-y-auto flex-1"
+                    style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 200px)' }}
+                >
                     {/* Item Type */}
                     {!editItem && (
                         <div className="mb-4">
@@ -396,7 +400,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                 </form>
 
                 {/* Footer */}
-                <div className="flex gap-3 p-4 pb-8 border-t bg-white">
+                <div className="flex gap-3 p-4 pb-8 border-t bg-white modal-footer-safe">
                     <button
                         type="button"
                         onClick={onClose}

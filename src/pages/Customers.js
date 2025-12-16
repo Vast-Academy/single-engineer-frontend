@@ -140,11 +140,15 @@ const Customers = () => {
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [backgroundRefresh, setBackgroundRefresh] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [hasMore, setHasMore] = useState(false);
     const [pendingWorkCounts, setPendingWorkCounts] = useState({});
     const listRef = useRef(null);
+
+    // Debounce search query for better performance
+    const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
     // Modal state
     const [showAddModal, setShowAddModal] = useState(false);
@@ -159,7 +163,11 @@ const Customers = () => {
                 // Load first page from SQLite
                 await fetchCustomersFromLocal(1, true);
                 // Also kick off a fresh pull in background to refresh data
-                pullCustomersFromBackend().then(() => fetchCustomersFromLocal(1, true)).catch(() => {});
+                setBackgroundRefresh(true);
+                pullCustomersFromBackend()
+                    .then(() => fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true }))
+                    .catch(() => {})
+                    .finally(() => setBackgroundRefresh(false));
             } catch (err) {
                 console.error('Customers bootstrap error:', err);
             } finally {
@@ -167,7 +175,7 @@ const Customers = () => {
             }
         };
         bootstrap();
-    }, []);
+    }, [debouncedSearchQuery]);
 
     // Fetch pending work orders once to show badges on customer cards
     const fetchPendingWorkOrders = useCallback(async () => {
@@ -192,11 +200,11 @@ const Customers = () => {
         fetchPendingWorkOrders();
     }, [fetchPendingWorkOrders]);
 
-    const fetchCustomersFromLocal = async (page = 1, reset = false, search = '') => {
+    const fetchCustomersFromLocal = async (page = 1, reset = false, search = '', options = {}) => {
         try {
-            if (reset) {
+            if (reset && !options.silent) {
                 setLoading(true);
-            } else {
+            } else if (!options.silent) {
                 setLoadingMore(true);
             }
 
@@ -248,15 +256,12 @@ const Customers = () => {
         setCustomers(newCustomers);
     };
 
-    // Debounce search query for better performance
-    const debouncedSearchQuery = useDebounce(searchQuery, 300);
-
     // When search changes, reload from SQLite (filtered in query)
     useEffect(() => {
         if (listRef.current) {
             listRef.current.scrollToItem(0);
         }
-        fetchCustomersFromLocal(1, true, debouncedSearchQuery);
+        fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true });
     }, [debouncedSearchQuery]);
 
     const filteredCustomers = customers; // already filtered at query time
@@ -287,7 +292,15 @@ const Customers = () => {
             <div>
                 {/* Fixed Page Header - Just below main Header */}
                 <div className="fixed top-[90px] left-0 right-0 z-30 bg-gray-50 px-4 py-3">
-                    <h1 className="text-xl font-bold text-gray-800">Customers</h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-xl font-bold text-gray-800">Customers</h1>
+                        {backgroundRefresh && (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                                <span className="w-3 h-3 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin"></span>
+                                Refreshing
+                            </span>
+                        )}
+                    </div>
                     <p className="text-gray-500 text-sm">Manage your customer database</p>
                 </div>
 

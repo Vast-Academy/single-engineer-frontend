@@ -107,7 +107,7 @@ const InventoryContent = ({
                     onItemsRendered={handleItemsRendered}
                 >
                     {({ index, style }) => (
-                        <div style={{ ...style, paddingBottom: '20px' }} key={filteredItems[index]._id}>
+                        <div style={{ ...style, paddingBottom: '10px' }} key={filteredItems[index]._id}>
                             <ItemCard
                                 item={filteredItems[index]}
                                 onEdit={handleEditItem}

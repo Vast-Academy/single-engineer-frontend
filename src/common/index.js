@@ -14,6 +14,14 @@ const SummaryApi = {
         url: `${backendDomain}/api/auth/logout`,
         method: "post"
     },
+    setPassword: {
+        url: `${backendDomain}/api/auth/set-password`,
+        method: "post"
+    },
+    emailPasswordLogin: {
+        url: `${backendDomain}/api/auth/login`,
+        method: "post"
+    },
 
     // Health Check
     healthCheck: {

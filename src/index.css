@@ -35,6 +35,12 @@ body {
     min-height: -webkit-fill-available;
 }
 
+:root {
+    --app-safe-area-bottom: 0px;
+    --app-viewport-height: 100vh;
+    --app-viewport-unit: 1vh;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
@@ -134,4 +140,17 @@ body {
 
 .fade-in-up {
     animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Modal helpers */
+.modal-shell {
+    max-height: calc(var(--app-viewport-height, 100vh) - 32px);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px));
+}
+
+.modal-footer-safe {
+    position: sticky;
+    bottom: 0;
+    background: #ffffff;
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px));
 }

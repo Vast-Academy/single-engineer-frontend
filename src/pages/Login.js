@@ -11,7 +11,7 @@ const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isVisible, setIsVisible] = useState(false);
-    const { loginWithGoogle, user, loading, logout } = useAuth();
+    const { loginWithGoogle, loginWithEmailPassword, user, loading, logout } = useAuth();
     const navigate = useNavigate();
 
     // Redirect if already logged in
@@ -56,9 +56,25 @@ const Login = () => {
         setIsLoading(false);
     };
 
-    const handleLogin = () => {
-        // Dummy for now
-        console.log('Login with:', { email, password });
+    const handleLogin = async () => {
+        // Validate inputs
+        if (!email.trim() || !password.trim()) {
+            setError('Please enter both email and password');
+            return;
+        }
+
+        setIsLoading(true);
+        setError('');
+
+        const result = await loginWithEmailPassword(email, password);
+
+        if (result.success) {
+            navigate('/dashboard');
+        } else {
+            setError(result.error || 'Invalid email or password. Please try again.');
+        }
+
+        setIsLoading(false);
     };
 
     const handleForceLogout = async () => {
@@ -233,14 +249,14 @@ const Login = () => {
                             </button>
 
                             {/* Sign Up Link */}
-                            <div className="text-center pt-3">
+                            {/* <div className="text-center pt-3">
                                 <p className="text-slate-600 text-xs">
                                     Don't have an account?{' '}
                                     <button className="text-blue-600 font-bold active:text-blue-700">
                                         Sign Up
                                     </button>
                                 </p>
-                            </div>
+                            </div> */}
                         </div>
                     </div>
                 </div>

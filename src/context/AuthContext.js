@@ -4,7 +4,8 @@ import {
     signOut,
     onIdTokenChanged,
     GoogleAuthProvider,
-    signInWithCredential
+    signInWithCredential,
+    signInWithCustomToken
 } from 'firebase/auth';
 import { auth, googleProvider } from '../config/firebase';
 import SummaryApi from '../common';
@@ -245,8 +246,65 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    // Set user password
+    const setUserPassword = async (password, confirmPassword) => {
+        try {
+            const { apiPost } = await import('../utils/apiClient');
+            const response = await apiPost(SummaryApi.setPassword.url, {
+                password,
+                confirmPassword
+            });
+
+            if (response.success) {
+                // Update local user state
+                setUser(prev => ({
+                    ...prev,
+                    isPasswordSet: true
+                }));
+                return { success: true };
+            }
+
+            return { success: false, error: response.message };
+        } catch (error) {
+            return { success: false, error: error.message || 'Failed to set password' };
+        }
+    };
+
+    // Login with email and password
+    const loginWithEmailPassword = async (email, password) => {
+        setLoading(true);
+
+        try {
+            const response = await fetch(SummaryApi.emailPasswordLogin.url, {
+                method: SummaryApi.emailPasswordLogin.method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.customToken) {
+                // Sign in to Firebase with custom token
+                const firebaseResult = await signInWithCustomToken(auth, data.customToken);
+
+                // Get ID token and sync with backend
+                const idToken = await firebaseResult.user.getIdToken();
+                await syncTokenWithBackend(idToken);
+
+                return { success: true };
+            }
+
+            return { success: false, error: data.message || 'Login failed' };
+        } catch (error) {
+            console.error('Email/Password login error:', error);
+            return { success: false, error: error.message || 'Login failed' };
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout }}>
+        <AuthContext.Provider value={{ user, loading, loginWithGoogle, loginWithEmailPassword, setUserPassword, logout }}>
             {children}
         </AuthContext.Provider>
     );

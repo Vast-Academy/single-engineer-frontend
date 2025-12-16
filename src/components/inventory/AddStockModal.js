@@ -474,7 +474,10 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-auto max-h-[70vh] sm:max-h-[65vh] flex flex-col overflow-hidden">
+            <div
+                className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-auto flex flex-col overflow-hidden modal-shell"
+                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 80px)' }}
+            >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
                     <h2 className="text-lg font-semibold text-gray-800">Add Stock</h2>
@@ -625,7 +628,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                 </div>
 
                 {/* Footer - Always Visible */}
-                <div className="flex gap-3 p-4 border-t flex-shrink-0">
+                <div className="flex gap-3 p-4 border-t flex-shrink-0 modal-footer-safe">
                     <button
                         type="button"
                         onClick={onClose}

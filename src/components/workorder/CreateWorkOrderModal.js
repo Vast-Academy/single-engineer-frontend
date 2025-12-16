@@ -1,16 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Search, User, Clock, FileText, ChevronRight } from 'lucide-react';
+import { X, Search, User, Clock, FileText, ChevronRight, UserPlus } from 'lucide-react';
 import SummaryApi from '../../common';
 import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
 import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
 import { useSync } from '../../context/SyncContext';
 import { apiClient } from '../../utils/apiClient';
-// import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
-// import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
-// import { useSync } from '../../context/SyncContext';
+import { Capacitor } from '@capacitor/core';
 import DatePicker from '../common/DatePicker';
 import Toast from '../common/Toast';
+import AddCustomerModal from '../customer/AddCustomerModal';
 
 const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess, redirectAfterCreate }) => {
     const navigate = useNavigate();
@@ -22,6 +21,13 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     const [customers, setCustomers] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchLoading, setSearchLoading] = useState(false);
+
+    // Contacts integration
+    const [contactsList, setContactsList] = useState([]);
+    const [contactsLoading, setContactsLoading] = useState(false);
+    const [contactPickerSupported, setContactPickerSupported] = useState(false);
+    const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+    const [creatingCustomerFromContact, setCreatingCustomerFromContact] = useState(false);
 
     // Form data
     const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -68,9 +74,19 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         setScheduleTime(getCurrentTime());
         setSearchQuery('');
         setCustomers([]);
+        setContactsList([]);
         setShowToast(false);
         setToastMessage('');
     };
+
+    // Check Contact Picker API support
+    useEffect(() => {
+        if ('contacts' in navigator && 'ContactsManager' in window) {
+            setContactPickerSupported(true);
+        } else if (Capacitor.isNativePlatform()) {
+            setContactPickerSupported(true);
+        }
+    }, []);
 
     // Initialize when modal opens
     useEffect(() => {
@@ -78,6 +94,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
             resetForm();
             if (!preSelectedCustomer) {
                 fetchCustomers();
+                loadContacts();
             }
         }
     }, [isOpen, preSelectedCustomer]);
@@ -162,6 +179,123 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         }
     }, [searchQuery, step]);
 
+    // Load contacts from phone (only on native platforms)
+    const loadContacts = async () => {
+        // Only load contacts automatically on native platforms
+        // Web Contact Picker API requires explicit user interaction
+        if (!Capacitor.isNativePlatform()) return;
+
+        try {
+            const { Contacts } = await import('@capacitor-community/contacts');
+
+            // Check permissions
+            const permStatus = await Contacts.checkPermissions();
+            if (permStatus?.contacts !== 'granted') {
+                const req = await Contacts.requestPermissions();
+                if (req?.contacts !== 'granted') {
+                    console.warn('Contacts permission denied');
+                    return;
+                }
+            }
+
+            setContactsLoading(true);
+            const result = await Contacts.getContacts({
+                projection: {
+                    name: true,
+                    phones: true
+                }
+            });
+            const list = (result?.contacts || [])
+                .map(c => {
+                    const rawName = c.displayName || c.name?.[0] || c.name || '';
+                    const name = typeof rawName === 'string' ? rawName : (rawName.display || rawName.given || '');
+                    const phone = (c.phoneNumbers || c.phones || [])
+                        .map(p => p.number)
+                        .find(Boolean) || '';
+                    return { name: name || '', phone };
+                })
+                .filter(c => c.name || c.phone)
+                .sort((a, b) => {
+                    // Sort alphabetically by name (case-insensitive)
+                    const nameA = (a.name || a.phone || '').toLowerCase();
+                    const nameB = (b.name || b.phone || '').toLowerCase();
+                    return nameA.localeCompare(nameB);
+                });
+            setContactsList(list);
+            setContactsLoading(false);
+        } catch (error) {
+            console.error('Load contacts error:', error);
+            setContactsLoading(false);
+        }
+    };
+
+    // Auto-create customer from contact
+    const createCustomerFromContact = async (contact) => {
+        if (!navigator.onLine) {
+            alert('You must be online to create customers from contacts');
+            return null;
+        }
+
+        setCreatingCustomerFromContact(true);
+        try {
+            const { pushCustomers } = await import('../../storage/sync/pushCustomers');
+            const { getCustomersDao } = await import('../../storage/dao/customersDao');
+
+            const payload = {
+                customerName: contact.name || contact.phone,
+                phoneNumber: contact.phone,
+                whatsappNumber: '',
+                address: ''
+            };
+
+            const response = await pushCustomers({ directCreate: payload });
+            const created = response?.createdCustomer;
+
+            if (!created?._id) {
+                throw new Error('Failed to create customer on server');
+            }
+
+            // Save to local DB
+            const dao = await getCustomersDao();
+            await dao.upsertOne({
+                id: created._id,
+                client_id: created._id,
+                customer_name: created.customerName,
+                phone_number: created.phoneNumber,
+                whatsapp_number: created.whatsappNumber || '',
+                address: created.address || '',
+                created_by: created.createdBy || null,
+                deleted: created.deleted || false,
+                updated_at: created.updatedAt || created.createdAt || new Date().toISOString(),
+                created_at: created.createdAt || new Date().toISOString(),
+                pending_sync: 0,
+                sync_op: null,
+                sync_error: null
+            });
+
+            const newCustomer = {
+                _id: created._id,
+                customerName: created.customerName,
+                phoneNumber: created.phoneNumber,
+                whatsappNumber: created.whatsappNumber || '',
+                address: created.address || ''
+            };
+
+            // Add to customers list
+            setCustomers(prev => [newCustomer, ...prev]);
+            notifyLocalSave();
+            bumpDataVersion();
+
+            return newCustomer;
+        } catch (error) {
+            console.error('Create customer from contact error:', error);
+            alert('Failed to create customer from contact');
+            return null;
+        } finally {
+            setCreatingCustomerFromContact(false);
+        }
+    };
+
     // Navigation
     const handleBack = () => {
         if (step > 1) {
@@ -195,6 +329,33 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     // Handle customer selection
     const handleSelectCustomer = (customer) => {
         setSelectedCustomer(customer);
+        setStep(2);
+    };
+
+    // Handle contact selection
+    const handleSelectContact = async (contact) => {
+        // Check if contact already exists as customer (by phone)
+        const existingCustomer = customers.find(c => c.phoneNumber === contact.phone);
+
+        if (existingCustomer) {
+            // Contact already exists as customer, select it
+            setSelectedCustomer(existingCustomer);
+            setStep(2);
+        } else {
+            // Create new customer from contact
+            const newCustomer = await createCustomerFromContact(contact);
+            if (newCustomer) {
+                setSelectedCustomer(newCustomer);
+                setStep(2);
+            }
+        }
+    };
+
+    // Handle add customer success from modal
+    const handleAddCustomerSuccess = (customer) => {
+        setCustomers(prev => [customer, ...prev]);
+        setSelectedCustomer(customer);
+        setShowAddCustomerModal(false);
         setStep(2);
     };
 
@@ -302,10 +463,13 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
     return (
         <>
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div
+                className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell"
+                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 32px)' }}
+            >
                 {/* Header */}
                 <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
                     {step > 1 && !(step === 2 && preSelectedCustomer) && (
@@ -331,52 +495,140 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto">
-                    {/* Step 1: Select Customer */}
+                    {/* Step 1: Select Customer or Contact */}
                     {step === 1 && (
                         <div className="p-4">
-                            {/* Search */}
-                            <div className="relative mb-4">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Search customer..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-primary-500"
-                                    autoFocus
-                                />
+                            {/* Search with Add Button */}
+                            <div className="flex gap-2 mb-4">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search customers or contacts..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-primary-500"
+                                        autoFocus
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => setShowAddCustomerModal(true)}
+                                    className="w-12 h-12 bg-primary-500 text-white rounded-xl flex items-center justify-center hover:bg-primary-600 transition-colors flex-shrink-0"
+                                    title="Add Customer"
+                                >
+                                    <UserPlus className="w-5 h-5" />
+                                </button>
                             </div>
 
-                            {/* Customer List */}
-                            {searchLoading ? (
+                            {/* Loading State */}
+                            {(searchLoading || contactsLoading || creatingCustomerFromContact) && (
                                 <div className="flex items-center justify-center py-8">
                                     <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-                                </div>
-                            ) : customers.length > 0 ? (
-                                <div className="space-y-2">
-                                    {customers.map(customer => (
-                                        <button
-                                            key={customer._id}
-                                            onClick={() => handleSelectCustomer(customer)}
-                                            className="w-full flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 text-left"
-                                        >
-                                            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                                                <User className="w-5 h-5 text-primary-600" />
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className="font-medium text-gray-800">{customer.customerName}</p>
-                                                <p className="text-sm text-gray-500">{customer.phoneNumber}</p>
-                                            </div>
-                                            <ChevronRight className="w-5 h-5 text-gray-400" />
-                                        </button>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8">
-                                    <User className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                                    <p className="text-gray-500">No customers found</p>
+                                    {creatingCustomerFromContact && (
+                                        <p className="ml-2 text-sm text-gray-600">Creating customer...</p>
+                                    )}
                                 </div>
                             )}
+
+                            {/* Filter customers and contacts based on search */}
+                            {!searchLoading && !contactsLoading && !creatingCustomerFromContact && (() => {
+                                const query = searchQuery.toLowerCase();
+                                const filteredCustomers = customers.filter(c =>
+                                    c.customerName.toLowerCase().includes(query) ||
+                                    c.phoneNumber.includes(query)
+                                ).sort((a, b) => {
+                                    // Sort alphabetically by name (case-insensitive)
+                                    const nameA = (a.customerName || '').toLowerCase();
+                                    const nameB = (b.customerName || '').toLowerCase();
+                                    return nameA.localeCompare(nameB);
+                                });
+                                const filteredContacts = contactsList.filter(c =>
+                                    (c.name && c.name.toLowerCase().includes(query)) ||
+                                    (c.phone && c.phone.includes(query))
+                                ).filter(contact => {
+                                    // Exclude contacts that already exist as customers
+                                    return !customers.some(customer => customer.phoneNumber === contact.phone);
+                                }).sort((a, b) => {
+                                    // Sort alphabetically by name (case-insensitive)
+                                    const nameA = (a.name || a.phone || '').toLowerCase();
+                                    const nameB = (b.name || b.phone || '').toLowerCase();
+                                    return nameA.localeCompare(nameB);
+                                });
+
+                                return (
+                                    <>
+                                        {/* Customers Section */}
+                                        {filteredCustomers.length > 0 && (
+                                            <div className="mb-6">
+                                                <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 px-1">
+                                                    Customers
+                                                </h3>
+                                                <div className="space-y-2">
+                                                    {filteredCustomers.map(customer => (
+                                                        <button
+                                                            key={customer._id}
+                                                            onClick={() => handleSelectCustomer(customer)}
+                                                            className="w-full flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 text-left transition-colors"
+                                                        >
+                                                            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                                                                <User className="w-5 h-5 text-primary-600" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="font-medium text-gray-800">{customer.customerName}</p>
+                                                                <p className="text-sm text-gray-500">{customer.phoneNumber}</p>
+                                                            </div>
+                                                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Contacts Section */}
+                                        {filteredContacts.length > 0 && (
+                                            <div className="mb-6">
+                                                <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 px-1">
+                                                    Contacts
+                                                </h3>
+                                                <div className="space-y-2">
+                                                    {filteredContacts.map((contact, idx) => (
+                                                        <button
+                                                            key={`${contact.phone}-${idx}`}
+                                                            onClick={() => handleSelectContact(contact)}
+                                                            className="w-full flex items-center gap-3 p-3 bg-green-50 rounded-xl hover:bg-green-100 text-left transition-colors"
+                                                        >
+                                                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                                                                <User className="w-5 h-5 text-green-600" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="font-medium text-gray-800">{contact.name || 'Unnamed'}</p>
+                                                                <p className="text-sm text-gray-500">{contact.phone}</p>
+                                                            </div>
+                                                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Empty State */}
+                                        {filteredCustomers.length === 0 && filteredContacts.length === 0 && (
+                                            <div className="text-center py-8">
+                                                <User className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                                                <p className="text-gray-500 text-sm">
+                                                    {searchQuery ? 'No customers or contacts found' : 'No customers or contacts available'}
+                                                </p>
+                                                <button
+                                                    onClick={() => setShowAddCustomerModal(true)}
+                                                    className="mt-4 px-6 py-2 bg-primary-500 text-white rounded-xl text-sm font-medium hover:bg-primary-600 transition-colors"
+                                                >
+                                                    Add Customer
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </div>
                     )}
 
@@ -493,7 +745,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
 
                 {/* Footer */}
                 {step === 2 && (
-                    <div className="p-4 border-t flex-shrink-0">
+                    <div className="p-4 border-t flex-shrink-0 modal-footer-safe">
                         <button
                             onClick={handleNext}
                             disabled={!note.trim() || !scheduleDate || (hasScheduledTime && !scheduleTime)}
@@ -505,7 +757,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                 )}
 
                 {step === 3 && (
-                    <div className="p-4 border-t flex-shrink-0">
+                    <div className="p-4 border-t flex-shrink-0 modal-footer-safe">
                         <button
                             onClick={handleCreate}
                             disabled={loading}
@@ -527,6 +779,13 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                 duration={2000}
             />
         )}
+
+        {/* Add Customer Modal */}
+        <AddCustomerModal
+            isOpen={showAddCustomerModal}
+            onClose={() => setShowAddCustomerModal(false)}
+            onSuccess={handleAddCustomerSuccess}
+        />
         </>
     );
 };
