@@ -116,10 +116,11 @@ const ViewStockModal = ({ isOpen, onClose, item }) => {
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))' }}
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[80vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden modal-shell flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <div className="flex items-center gap-2">
@@ -138,7 +139,7 @@ const ViewStockModal = ({ isOpen, onClose, item }) => {
                 </div>
 
                 {/* Content */}
-                <div className="p-4 overflow-y-auto max-h-[calc(80vh-130px)]">
+                <div className="p-4 modal-body">
                     {/* Summary Card */}
                     <div className="bg-gradient-to-r from-primary-500 to-blue-400 rounded-xl p-4 mb-4 text-white">
                         <div className="flex items-center justify-between">

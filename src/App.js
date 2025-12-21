@@ -7,7 +7,6 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Home from './pages/Home';
 import Inventory from './pages/Inventory';
-import Services from './pages/Services';
 import Workorders from './pages/Workorders';
 import Customers from './pages/Customers';
 import CustomerDetail from './pages/CustomerDetail';
@@ -294,7 +293,7 @@ function App() {
                         element={
                             <ProtectedRoute>
                                 <InitialSyncGate>
-                                    <Services />
+                                    <Inventory initialTab="services" />
                                 </InitialSyncGate>
                             </ProtectedRoute>
                         }
@@ -304,7 +303,7 @@ function App() {
                         element={
                             <ProtectedRoute>
                                 <InitialSyncGate>
-                                    <Layout>
+                                    <Layout padForBottomStack={false}>
                                         <Workorders />
                                     </Layout>
                                 </InitialSyncGate>

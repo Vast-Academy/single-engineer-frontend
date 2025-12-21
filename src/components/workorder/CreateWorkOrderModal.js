@@ -468,7 +468,6 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
         >
             <div
                 className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell"
-                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 32px)' }}
             >
                 {/* Header */}
                 <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
@@ -494,7 +493,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto">
+                <div className="modal-body">
                     {/* Step 1: Select Customer or Contact */}
                     {step === 1 && (
                         <div className="p-4">
@@ -508,7 +507,6 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-primary-500"
-                                        autoFocus
                                     />
                                 </div>
                                 <button

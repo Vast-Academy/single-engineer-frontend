@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Phone, MessageCircle, MapPin, Trash2 } from 'lucide-react';
+import { X, Phone, MessageCircle, MapPin } from 'lucide-react';
 import { getCustomersDao } from '../../storage/dao/customersDao';
 import { pushCustomers } from '../../storage/sync/pushCustomers';
 import { useSync } from '../../context/SyncContext';
 
-const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) => {
+const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess }) => {
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         customerName: '',
@@ -91,8 +91,6 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) =
         }
     }, [formData.phoneNumber, sameAsPhone]);
 
-    const hasServerId = !!customer?._id && !customer._id.startsWith('client-') && !(customer.id && customer.id.startsWith('client-'));
-
     // Handle submit
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -134,27 +132,15 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) =
         }
     };
 
-    // Handle delete
-    const handleDelete = () => {
-        if (!hasServerId) {
-            alert('Please wait for sync before deleting this customer.');
-            return;
-        }
-
-        if (window.confirm(`Are you sure you want to delete "${customer.customerName}"?`)) {
-            onDelete(customer);
-            onClose();
-        }
-    };
-
     if (!isOpen || !customer) return null;
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-40 flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))' }}
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden modal-shell flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-lg font-semibold text-gray-800">{customer.customerName}</h2>
@@ -166,7 +152,7 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) =
                     </button>
                 </div>
 
-                <div className="overflow-y-auto max-h-[calc(85vh-140px)]">
+                <div className="modal-body">
                     {/* Customer Details Form */}
                     <form onSubmit={handleSubmit} className="p-4">
                         <p className="text-xs text-gray-500 uppercase tracking-wide mb-3 font-medium">Customer Details</p>
@@ -245,16 +231,6 @@ const EditCustomerModal = ({ isOpen, onClose, customer, onSuccess, onDelete }) =
                                 placeholder="Enter address (optional)"
                             />
                         </div>
-
-                        {/* Delete Button */}
-                        <button
-                            type="button"
-                            onClick={handleDelete}
-                            className="w-full py-2 text-red-600 hover:bg-red-50 rounded-xl flex items-center justify-center gap-2 text-sm"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Customer
-                        </button>
                     </form>
                 </div>
 

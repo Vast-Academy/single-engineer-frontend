@@ -1,8 +1,62 @@
-import { useNavigate } from 'react-router-dom';
-import { CheckCircle, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, Download, Eye, Share2 } from 'lucide-react';
+import { downloadBillPdf, shareBillPdf, viewBillPdf } from '../../../utils/billPdf';
+import { useAuth } from '../../../context/AuthContext';
 
 const SuccessStep = ({ bill, onDone, customer }) => {
-    const navigate = useNavigate();
+    const { user } = useAuth();
+    const [downloading, setDownloading] = useState(false);
+    const [sharing, setSharing] = useState(false);
+    const [viewing, setViewing] = useState(false);
+
+    const handleView = async () => {
+        try {
+            setViewing(true);
+            await viewBillPdf({
+                bill,
+                customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('View PDF error:', error);
+            alert('Unable to open the PDF viewer right now.');
+        } finally {
+            setViewing(false);
+        }
+    };
+
+    const handleDownload = async () => {
+        try {
+            setDownloading(true);
+            await downloadBillPdf({
+                bill,
+                customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('Download PDF error:', error);
+            alert('Failed to download PDF. Please try again.');
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const handleShare = async () => {
+        try {
+            setSharing(true);
+            await shareBillPdf({
+                bill,
+                customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('Share PDF error:', error);
+            alert('Unable to share right now. The PDF has been prepared/downloaded.');
+        } finally {
+            setSharing(false);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex-1 flex flex-col items-center justify-center p-8">
@@ -57,19 +111,32 @@ const SuccessStep = ({ bill, onDone, customer }) => {
 
             {/* Action Buttons */}
             <div className="p-4 border-t flex-shrink-0 space-y-3">
-                <button
-                    onClick={() => {
-                        onDone();
-                        navigate(`/bill/${bill._id}`, {
-                            state: { bill, customer },
-                            replace: true
-                        });
-                    }}
-                    className="w-full py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600 flex items-center justify-center gap-2"
-                >
-                    <ExternalLink className="w-5 h-5" />
-                    View Bill
-                </button>
+                <div className="grid grid-cols-3 gap-2">
+                    <button
+                        onClick={handleView}
+                        disabled={viewing}
+                        className="py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        <Eye className="w-4 h-4" />
+                        {viewing ? 'Opening...' : 'View Bill'}
+                    </button>
+                    <button
+                        onClick={handleDownload}
+                        disabled={downloading}
+                        className="py-3 bg-blue-50 text-blue-700 font-medium rounded-xl hover:bg-blue-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        <Download className="w-4 h-4" />
+                        {downloading ? 'Downloading...' : 'Download'}
+                    </button>
+                    <button
+                        onClick={handleShare}
+                        disabled={sharing}
+                        className="py-3 bg-green-50 text-green-700 font-medium rounded-xl hover:bg-green-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        <Share2 className="w-4 h-4" />
+                        {sharing ? 'Sharing...' : 'Share'}
+                    </button>
+                </div>
                 <button
                     onClick={onDone}
                     className="w-full py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50"

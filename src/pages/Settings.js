@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft, Trash2, Lock, Key } from 'lucide-react';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
 import SetPasswordModal from '../components/auth/SetPasswordModal';
+import BusinessProfileModal from '../components/auth/BusinessProfileModal';
 import { isNative } from '../utils/platform';
 import SummaryApi from '../common';
 import { apiClient } from '../utils/apiClient';
@@ -16,6 +17,7 @@ const Settings = () => {
     const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
     const [isClearingData, setIsClearingData] = useState(false);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [showBusinessProfileModal, setShowBusinessProfileModal] = useState(false);
 
     // Show logout confirmation modal
     const handleLogout = () => {
@@ -68,13 +70,30 @@ const Settings = () => {
                     }
 
                     console.log('✓ All local database tables cleared');
+
+                    // IMPORTANT: Close database connection before reload
+                    try {
+                        await db.close();
+                        console.log('✓ Database connection closed');
+                    } catch (closeError) {
+                        console.warn('Database close warning:', closeError);
+                    }
                 } catch (dbError) {
                     console.error('Database clear error:', dbError);
                     errors.push(`Database: ${dbError.message}`);
                 }
             }
 
-            // Step 2: Clear Firebase auth (sign out)
+            // Step 2: Clear auth token cache
+            try {
+                const { default: authTokenManager } = await import('../utils/authTokenManager');
+                authTokenManager.clearCache();
+                console.log('✓ Auth token cache cleared');
+            } catch (cacheError) {
+                console.warn('Token cache clear skipped:', cacheError);
+            }
+
+            // Step 3: Clear Firebase auth (sign out)
             try {
                 const { signOut } = await import('firebase/auth');
                 const { auth } = await import('../config/firebase');
@@ -85,7 +104,7 @@ const Settings = () => {
                 errors.push(`Firebase: ${authError.message}`);
             }
 
-            // Step 3: Clear Google Native SDK (if initialized)
+            // Step 4: Clear Google Native SDK (if initialized)
             if (isNative()) {
                 try {
                     const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
@@ -98,7 +117,7 @@ const Settings = () => {
                 }
             }
 
-            // Step 4: Clear Capacitor Preferences (WebView storage)
+            // Step 5: Clear Capacitor Preferences (WebView storage)
             if (isNative()) {
                 try {
                     const { Preferences } = await import('@capacitor/preferences');
@@ -110,7 +129,7 @@ const Settings = () => {
                 }
             }
 
-            // Step 5: Clear backend session cookie
+            // Step 6: Clear backend session cookie
             try {
                 await apiClient(SummaryApi.logout.url, {
                     method: SummaryApi.logout.method
@@ -129,7 +148,7 @@ const Settings = () => {
                 console.log('✅ All data cleared successfully!');
             }
 
-            // Reload the app (give time for logs)
+            // Step 7: Reload the app (give time for logs and cleanup)
             setTimeout(() => {
                 window.location.href = '/';
             }, 500);
@@ -170,10 +189,16 @@ const Settings = () => {
         </h2>
     );
 
+    // Pad bottom to avoid nav/gesture overlap
+    const contentBottomPadding = useMemo(
+        () => `calc(max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px)) + 16px)`,
+        []
+    );
+
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Header with Back Arrow */}
-            <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50">
+            <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50 safe-area-top">
                 <div className="px-4 py-3 flex items-center gap-3">
                     <button
                         onClick={() => navigate(-1)}
@@ -186,7 +211,10 @@ const Settings = () => {
             </header>
 
             {/* Content */}
-            <div className="pt-20 pb-8 px-4">
+            <div
+                className="pt-28 px-4"
+                style={{ paddingBottom: contentBottomPadding }}
+            >
 
             {/* Profile Card */}
             <div className="bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-5 shadow-lg mb-6">
@@ -220,10 +248,18 @@ const Settings = () => {
             <div className="bg-white rounded-xl shadow-sm overflow-hidden divide-y divide-gray-100 mb-2">
                 <SettingItem
                     icon={User}
-                    label="Edit Profile"
-                    onClick={() => {}}
+                    label={user?.businessProfile?.isComplete ? "Business Details" : "Complete Business Profile"}
+                    subtitle={user?.businessProfile?.isComplete
+                        ? "View and update your business information"
+                        : "Add your business details for bills"}
+                    onClick={() => setShowBusinessProfileModal(true)}
                     iconBg="bg-blue-100"
                     iconColor="text-blue-600"
+                    badge={!user?.businessProfile?.isComplete && (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-medium">
+                            Required
+                        </span>
+                    )}
                 />
                 <SettingItem
                     icon={Building2}
@@ -236,7 +272,7 @@ const Settings = () => {
 
             {/* Security Section */}
             <SectionHeader title="Security" />
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-2">
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden divide-y divide-gray-100 mb-2">
                 <SettingItem
                     icon={Key}
                     label={user?.isPasswordSet ? "Change Password" : "Set Password"}
@@ -252,10 +288,18 @@ const Settings = () => {
                         </span>
                     )}
                 />
+                <SettingItem
+                    icon={Trash2}
+                    label="Delete Account"
+                    subtitle="Permanently delete your account and data"
+                    onClick={() => {}}
+                    iconBg="bg-red-100"
+                    iconColor="text-red-600"
+                />
             </div>
 
             {/* Preferences Section */}
-            <SectionHeader title="Preferences" />
+            {/* <SectionHeader title="Preferences" />
             <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-2">
                 <SettingItem
                     icon={Bell}
@@ -264,7 +308,7 @@ const Settings = () => {
                     iconBg="bg-purple-100"
                     iconColor="text-purple-600"
                 />
-            </div>
+            </div> */}
 
             {/* Support Section */}
             <SectionHeader title="Support" />
@@ -290,7 +334,7 @@ const Settings = () => {
                         <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
                             <Trash2 className="w-5 h-5 text-red-600" />
                         </div>
-                        <span className="text-red-600 font-medium text-sm">Clear All Data & Logout</span>
+                        <span className="text-red-600 font-medium text-sm">Clear All Cache & Logout</span>
                     </div>
                     {isClearingData && (
                         <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
@@ -318,10 +362,10 @@ const Settings = () => {
             </button>
 
             {/* App Info */}
-            <div className="mt-8 text-center space-y-1">
+            {/* <div className="mt-8 text-center space-y-1">
                 <p className="text-gray-400 text-xs">Version 1.0.0</p>
                 <p className="text-gray-400 text-xs">Made with care for engineers</p>
-            </div>
+            </div> */}
 
             {/* Logout Confirmation Modal */}
             <DeleteConfirmModal
@@ -341,7 +385,7 @@ const Settings = () => {
                 onClose={() => setShowClearDataConfirm(false)}
                 onConfirm={confirmClearAllData}
                 title="⚠️ Clear All Data"
-                message="This will DELETE ALL local data (customers, bills, work orders, inventory) and log you out. This action cannot be undone. Use only for testing/development."
+                message="This will DELETE ALL local data (customers, bills, work orders, inventory) and log you out. This action cannot be undone."
                 loading={isClearingData}
                 confirmText="Yes, Clear Everything"
                 loadingText="Clearing data..."
@@ -355,6 +399,15 @@ const Settings = () => {
                     // Password set successfully, modal will close automatically
                 }}
                 isChangingPassword={user?.isPasswordSet}
+            />
+
+            {/* Business Profile Modal */}
+            <BusinessProfileModal
+                isOpen={showBusinessProfileModal}
+                onClose={() => setShowBusinessProfileModal(false)}
+                onSuccess={() => {
+                    // Business profile updated successfully
+                }}
             />
             </div>
         </div>

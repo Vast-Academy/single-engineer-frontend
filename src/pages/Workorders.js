@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Plus, ClipboardList } from 'lucide-react';
 import { FixedSizeList } from 'react-window';
 import SummaryApi from '../common';
@@ -9,12 +9,14 @@ import { SkeletonWorkOrdersPage } from '../components/common/SkeletonLoaders';
 import { ensureWorkOrdersPulled, pullWorkOrdersFromBackend } from '../storage/sync/workOrdersSync';
 import { getWorkOrdersDao } from '../storage/dao/workOrdersDao';
 import { getCustomersDao } from '../storage/dao/customersDao';
+import { useLayoutContext } from '../components/Layout';
 
 const ITEMS_PER_PAGE = 5;
 const ITEM_HEIGHT = 170;
 const ITEM_SPACING = 12;
 
 const Workorders = () => {
+    const { bottomStackHeight } = useLayoutContext();
     const [activeTab, setActiveTab] = useState('pending'); // pending, completed
     const [pendingWorkOrders, setPendingWorkOrders] = useState([]);
     const [completedWorkOrders, setCompletedWorkOrders] = useState([]);
@@ -31,8 +33,15 @@ const Workorders = () => {
     const completedListRef = useRef(null);
     const containerRef = useRef(null);
 
+    // Touch states for swipe functionality
+    const [touchStartX, setTouchStartX] = useState(null);
+    const [touchStartY, setTouchStartY] = useState(null);
+    const [touchEndX, setTouchEndX] = useState(null);
+    const [touchEndY, setTouchEndY] = useState(null);
+    const SWIPE_THRESHOLD = 60;
+
     // Calculate list dimensions on mount and resize
-    useEffect(() => {
+    useLayoutEffect(() => {
         const calculateDimensions = () => {
             // Header(60) + PageHeaderWithTabs(110) + BottomNav(80) = 250px
             const height = window.innerHeight - 250;
@@ -55,19 +64,26 @@ const Workorders = () => {
     const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
 
+    const lastRefreshRef = useRef(0);
+
     // Fetch work orders
     useEffect(() => {
         const bootstrap = async () => {
             setLoading(true);
             try {
                 await ensureWorkOrdersPulled();
+                lastRefreshRef.current = Date.now();
                 await fetchPendingLocal(1, true);
                 await fetchCompletedLocal(1, true);
                 // background refresh
-                pullWorkOrdersFromBackend().then(async () => {
-                    await fetchPendingLocal(1, true);
-                    await fetchCompletedLocal(1, true);
-                }).catch(() => {});
+                const now = Date.now();
+                if (now - lastRefreshRef.current > 30000) {
+                    pullWorkOrdersFromBackend().then(async () => {
+                        lastRefreshRef.current = Date.now();
+                        await fetchPendingLocal(1, true, { showSkeleton: false });
+                        await fetchCompletedLocal(1, true, { showSkeleton: false });
+                    }).catch(() => {});
+                }
             } catch (err) {
                 console.error('Workorders bootstrap error:', err);
             } finally {
@@ -117,10 +133,11 @@ const Workorders = () => {
         return map;
     };
 
-    const fetchPendingLocal = async (page = 1, reset = false) => {
+    const fetchPendingLocal = async (page = 1, reset = false, options = {}) => {
+        const { showSkeleton = true } = options;
         try {
             if (reset) {
-                setLoading(true);
+                if (showSkeleton) setLoading(true);
             } else {
                 setLoadingMorePending(true);
             }
@@ -147,10 +164,11 @@ const Workorders = () => {
         }
     };
 
-    const fetchCompletedLocal = async (page = 1, reset = false) => {
+    const fetchCompletedLocal = async (page = 1, reset = false, options = {}) => {
+        const { showSkeleton = true } = options;
         try {
             if (reset) {
-                setLoading(true);
+                if (showSkeleton) setLoading(true);
             } else {
                 setLoadingMoreCompleted(true);
             }
@@ -245,48 +263,91 @@ const Workorders = () => {
     // Count for tabs
     const pendingCount = pendingWorkOrders.length;
     const completedCount = completedWorkOrders.length;
+    const fabBottomOffset = `calc(${bottomStackHeight || 0}px + var(--app-safe-area-bottom, 0px) + 12px)`;
 
     return (
-        <div>
-            {/* Fixed Page Header - Just below main Header */}
-            <div className="fixed top-[90px] left-0 right-0 bg-gray-50 z-30 px-4 py-3 ">
+        <div
+            className="space-y-4"
+            onTouchStart={(e) => {
+                setTouchStartX(e.changedTouches[0].clientX);
+                setTouchStartY(e.changedTouches[0].clientY);
+            }}
+            onTouchMove={(e) => {
+                setTouchEndX(e.changedTouches[0].clientX);
+                setTouchEndY(e.changedTouches[0].clientY);
+            }}
+            onTouchEnd={() => {
+                if (touchStartX === null || touchEndX === null || touchStartY === null || touchEndY === null) {
+                    setTouchStartX(null);
+                    setTouchStartY(null);
+                    setTouchEndX(null);
+                    setTouchEndY(null);
+                    return;
+                }
+
+                const deltaX = touchEndX - touchStartX;
+                const deltaY = touchEndY - touchStartY;
+                const absDeltaX = Math.abs(deltaX);
+                const absDeltaY = Math.abs(deltaY);
+
+                // Only trigger swipe if horizontal movement is greater than vertical
+                if (absDeltaX > absDeltaY && absDeltaX > SWIPE_THRESHOLD) {
+                    if (deltaX < 0 && activeTab === 'pending') {
+                        setActiveTab('completed');
+                    } else if (deltaX > 0 && activeTab === 'completed') {
+                        setActiveTab('pending');
+                    }
+                }
+
+                setTouchStartX(null);
+                setTouchStartY(null);
+                setTouchEndX(null);
+                setTouchEndY(null);
+            }}
+        >
+            {/* Sticky Page Header */}
+            <div className="sticky top-[var(--layout-top-offset,64px)] bg-gray-50 z-40 px-4 py-3">
                 <h1 className="text-xl font-bold text-gray-800">Work Orders</h1>
                 <p className="text-gray-500 text-sm">Track and manage work orders</p>
 
                 {/* Filter Tabs */}
-                <div className="flex gap-2 mt-3">
-                <button
-                    onClick={() => handleTabChange('pending')}
-                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                        activeTab === 'pending'
-                            ? 'bg-primary-500 text-white'
-                            : 'bg-white text-gray-600 border border-gray-200'
-                    }`}
-                >
-                    Pending {pendingCount > 0 && `(${pendingCount})`}
-                </button>
-                <button
-                    onClick={() => handleTabChange('completed')}
-                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                        activeTab === 'completed'
-                            ? 'bg-green-500 text-white'
-                            : 'bg-white text-gray-600 border border-gray-200'
-                    }`}
-                >
-                    Completed {completedCount > 0 && `(${completedCount})`}
-                </button>
+                <div className="flex bg-gray-100 rounded-xl p-1 mt-3">
+                    <button
+                        onClick={() => handleTabChange('pending')}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            activeTab === 'pending'
+                                ? 'bg-white text-yellow-700 shadow-sm'
+                                : 'text-gray-600'
+                        }`}
+                    >
+                        Pending {pendingCount > 0 && `(${pendingCount})`}
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('completed')}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                            activeTab === 'completed'
+                                ? 'bg-white text-green-700 shadow-sm'
+                                : 'text-gray-600'
+                        }`}
+                    >
+                        Completed {completedCount > 0 && `(${completedCount})`}
+                    </button>
                 </div>
             </div>
 
-            {/* Page Content with padding for fixed header */}
-            <div className="pt-[155px] pb-10">
+            {/* Page Content */}
+            <div className="pt-4 pb-10">
 
             {/* Work Orders List */}
             {loading ? (
                 <SkeletonWorkOrdersPage />
             ) : activeTab === 'pending' ? (
                 pendingWorkOrders.length > 0 ? (
-                    <div ref={containerRef} className="w-full">
+                    <div
+                        ref={containerRef}
+                        className="w-full"
+                        style={{ paddingBottom: (bottomStackHeight || 0) + 16 }}
+                    >
                         {listHeight > 0 && listWidth > 0 && (
                             <FixedSizeList
                                 ref={pendingListRef}
@@ -337,7 +398,11 @@ const Workorders = () => {
                 )
             ) : (
                 completedWorkOrders.length > 0 ? (
-                    <div ref={containerRef} className="w-full">
+                    <div
+                        ref={containerRef}
+                        className="w-full"
+                        style={{ paddingBottom: (bottomStackHeight || 0) + 16 }}
+                    >
                         {listHeight > 0 && listWidth > 0 && (
                             <FixedSizeList
                                 ref={completedListRef}
@@ -385,7 +450,8 @@ const Workorders = () => {
             {/* Floating Action Button */}
             <button
                 onClick={() => setShowCreateModal(true)}
-                className="fixed bottom-24 right-4 w-14 h-14 bg-orange-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-orange-600 transition-colors z-30"
+                className="fixed right-4 w-14 h-14 bg-orange-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-orange-600 transition-colors z-30"
+                style={{ bottom: fabBottomOffset }}
             >
                 <Plus className="w-6 h-6" />
             </button>

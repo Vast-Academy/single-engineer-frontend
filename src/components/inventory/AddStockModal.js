@@ -472,11 +472,11 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
     return (
         <div
             className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))' }}
             onClick={handleOverlayClick}
         >
             <div
                 className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl h-auto flex flex-col overflow-hidden modal-shell"
-                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 80px)' }}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
@@ -490,7 +490,7 @@ const AddStockModal = ({ isOpen, onClose, onSuccess, item }) => {
                 </div>
 
                 {/* Form - Scrollable Content */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="p-4 modal-body">
                     {/* Item Info */}
                     <div className="bg-gray-50 rounded-xl p-3 mb-4">
                         <p className="font-medium text-gray-800">{item.itemName}</p>

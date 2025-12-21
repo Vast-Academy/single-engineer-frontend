@@ -29,7 +29,10 @@ const PasswordSetupPrompt = ({ isOpen, onClose, onNavigateToSettings }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))' }}
+        >
             <div
                 className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md shadow-2xl animate-slide-up"
                 onClick={(e) => e.stopPropagation()}

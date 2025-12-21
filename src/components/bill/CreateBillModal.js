@@ -40,7 +40,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
 
     // Created bill data
     const [createdBill, setCreatedBill] = useState(null);
-    const { isOnline } = useSync();
+    const { isOnline, bumpDataVersion } = useSync();
 
     // Calculate totals
     const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -246,6 +246,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
             // Persist server bill to local SQLite so detail screens have items/history immediately
             const dao = await getBillsDao();
             await dao.upsertMany([serverBill]);
+            bumpDataVersion();
 
             // Map to UI shape for success screen
             const mappedBill = {
@@ -322,7 +323,6 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
         >
             <div
                 className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden modal-shell"
-                style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 32px)' }}
             >
                 {/* Header */}
                 <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
@@ -346,7 +346,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
                 </div>
 
                 {/* Step Content */}
-                <div className="flex-1 overflow-y-auto">
+                <div className="modal-body">
                     {currentStep === STEPS.ITEM_SELECTION && (
                         <ItemSelectionStep
                             customer={customer}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Phone, MessageCircle, MapPin, Trash2, Receipt, FileText, Wrench, IndianRupee } from 'lucide-react';
 import CreateBillModal from '../components/bill/CreateBillModal';
@@ -27,6 +27,7 @@ const CustomerDetail = () => {
     const [showBillModal, setShowBillModal] = useState(false);
     const [showWorkOrderModal, setShowWorkOrderModal] = useState(false);
     const { notifyLocalSave, dataVersion } = useSync();
+    const lastFetchedVersion = useRef(null);
 
     // Always fetch customer data fresh on mount (from SQLite only)
     useEffect(() => {
@@ -49,6 +50,10 @@ const CustomerDetail = () => {
     }, [customer]);
 
     const fetchCustomer = async () => {
+        if (lastFetchedVersion.current === dataVersion && customer) {
+            return;
+        }
+
         setLoading(true);
         try {
             const dao = await getCustomersDao();
@@ -65,6 +70,7 @@ const CustomerDetail = () => {
             } else {
                 setCustomer(null);
             }
+            lastFetchedVersion.current = dataVersion;
         } catch (error) {
             console.error('Fetch customer error:', error);
         } finally {

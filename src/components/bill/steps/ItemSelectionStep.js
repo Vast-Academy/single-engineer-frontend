@@ -16,6 +16,8 @@ const ItemSelectionStep = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedItems, setExpandedItems] = useState({});
     const [selectedSerials, setSelectedSerials] = useState({});
+    const [genericQtyInputs, setGenericQtyInputs] = useState({});
+    const [serviceQtyInputs, setServiceQtyInputs] = useState({});
 
     // Separate serialized and generic items
     const serializedItems = items.filter(item => item.itemType === 'serialized');
@@ -87,6 +89,7 @@ const ItemSelectionStep = ({
             price: item.salePrice,
             amount: item.salePrice
         });
+        setGenericQtyInputs(prev => ({ ...prev, [item._id]: '0' }));
     };
 
     // Update generic item qty
@@ -111,6 +114,35 @@ const ItemSelectionStep = ({
             // Remove old and add updated
             onRemoveItem(index);
             onAddItem(updatedItem);
+            setGenericQtyInputs(prev => ({ ...prev, [item._id]: String(newQty) }));
+        }
+    };
+
+    // Set generic item qty from input
+    const handleSetGenericQty = (item, rawValue) => {
+        const cartItem = getItemInCart(item._id, 'generic');
+        if (!cartItem) return;
+
+        setGenericQtyInputs(prev => ({ ...prev, [item._id]: rawValue }));
+
+        if (rawValue === '') return;
+        const parsed = parseInt(rawValue, 10);
+        if (!parsed || parsed < 1) return;
+
+        const availableStock = getAvailableStock(item);
+        const maxQty = availableStock + cartItem.qty;
+        const clampedQty = Math.min(parsed, maxQty);
+
+        const index = selectedItems.findIndex(si => si.itemId === item._id && si.itemType === 'generic');
+        if (index !== -1) {
+            const updatedItem = {
+                ...cartItem,
+                qty: clampedQty,
+                amount: item.salePrice * clampedQty
+            };
+            onRemoveItem(index);
+            onAddItem(updatedItem);
+            setGenericQtyInputs(prev => ({ ...prev, [item._id]: String(clampedQty) }));
         }
     };
 
@@ -120,6 +152,11 @@ const ItemSelectionStep = ({
         if (index !== -1) {
             onRemoveItem(index);
         }
+        setGenericQtyInputs(prev => {
+            const next = { ...prev };
+            delete next[itemId];
+            return next;
+        });
     };
 
     // Add service (first time)
@@ -132,6 +169,7 @@ const ItemSelectionStep = ({
             price: service.servicePrice,
             amount: service.servicePrice
         });
+        setServiceQtyInputs(prev => ({ ...prev, [service._id]: '0' }));
     };
 
     // Update service qty
@@ -153,6 +191,31 @@ const ItemSelectionStep = ({
             // Remove old and add updated
             onRemoveItem(index);
             onAddItem(updatedItem);
+            setServiceQtyInputs(prev => ({ ...prev, [service._id]: String(newQty) }));
+        }
+    };
+
+    // Set service qty from input
+    const handleSetServiceQty = (service, rawValue) => {
+        const cartItem = getItemInCart(service._id, 'service');
+        if (!cartItem) return;
+
+        setServiceQtyInputs(prev => ({ ...prev, [service._id]: rawValue }));
+
+        if (rawValue === '') return;
+        const parsed = parseInt(rawValue, 10);
+        if (!parsed || parsed < 1) return;
+
+        const index = selectedItems.findIndex(si => si.itemId === service._id && si.itemType === 'service');
+        if (index !== -1) {
+            const updatedItem = {
+                ...cartItem,
+                qty: parsed,
+                amount: service.servicePrice * parsed
+            };
+            onRemoveItem(index);
+            onAddItem(updatedItem);
+            setServiceQtyInputs(prev => ({ ...prev, [service._id]: String(parsed) }));
         }
     };
 
@@ -162,6 +225,11 @@ const ItemSelectionStep = ({
         if (index !== -1) {
             onRemoveItem(index);
         }
+        setServiceQtyInputs(prev => {
+            const next = { ...prev };
+            delete next[serviceId];
+            return next;
+        });
     };
 
     // Get available serials (not already added)
@@ -367,7 +435,13 @@ const ItemSelectionStep = ({
                                                                         <Minus className="w-4 h-4" />
                                                                     )}
                                                                 </button>
-                                                                <span className="w-10 text-center text-sm font-semibold">{cartItem.qty}</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    value={genericQtyInputs[item._id] ?? '0'}
+                                                                    onChange={(e) => handleSetGenericQty(item, e.target.value)}
+                                                                    className="w-12 text-center text-sm font-semibold border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-primary-500"
+                                                                />
                                                                 <button
                                                                     onClick={() => handleUpdateGenericQty(item, 1)}
                                                                     disabled={availableStock <= 0}
@@ -428,7 +502,13 @@ const ItemSelectionStep = ({
                                                                 <Minus className="w-4 h-4" />
                                                             )}
                                                         </button>
-                                                        <span className="w-10 text-center text-sm font-semibold">{cartItem.qty}</span>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={serviceQtyInputs[service._id] ?? '0'}
+                                                            onChange={(e) => handleSetServiceQty(service, e.target.value)}
+                                                            className="w-12 text-center text-sm font-semibold border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-primary-500"
+                                                        />
                                                         <button
                                                             onClick={() => handleUpdateServiceQty(service, 1)}
                                                             className="w-9 h-9 flex items-center justify-center text-gray-600 hover:bg-gray-100 rounded-lg"

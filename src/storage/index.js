@@ -12,15 +12,15 @@ let readyPromise;
 export const initStorage = async () => {
     // BLOCK web browsers from initializing SQLite
     if (isWeb()) {
-        console.warn('🚫 SQLite initialization blocked. This app is Android-only.');
+        console.warn('dYs® SQLite initialization blocked. This app is Android-only.');
         throw new Error('SQLite initialization blocked for web browsers. This app only works in Android WebView.');
     }
 
     if (!readyPromise) {
         readyPromise = (async () => {
-            console.log('✓ Initializing SQLite for Android WebView...');
+            console.log('ƒo" Initializing SQLite for Android WebView...');
             const db = await runMigrations();
-            console.log('✓ SQLite database ready');
+            console.log('ƒo" SQLite database ready');
             return db;
         })();
     }

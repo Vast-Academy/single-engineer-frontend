@@ -9,12 +9,14 @@ import { getBankAccountsDao } from '../storage/dao/bankAccountsDao';
 import { pullBankAccounts } from '../storage/sync/bankAccountsSync';
 import { pushBankAccounts } from '../storage/sync/pushBankAccounts';
 import { useSync } from '../context/SyncContext';
+import { useLayoutContext } from '../components/Layout';
 
 const BankAccounts = () => {
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
     const { notifyLocalSave } = useSync();
+    const { bottomStackHeight } = useLayoutContext();
 
     // Modal states
     const [showModal, setShowModal] = useState(false);
@@ -138,6 +140,8 @@ const BankAccounts = () => {
         fetchAccountsFromLocal(true);
     };
 
+    const fabBottomOffset = `calc(${bottomStackHeight || 0}px + var(--app-safe-area-bottom, 0px) + 12px)`;
+
     return (
         <div className="pb-20">
             {/* Page Header */}
@@ -191,7 +195,8 @@ const BankAccounts = () => {
             {accounts.length > 0 && (
                 <button
                     onClick={handleAddNew}
-                    className="fixed bottom-24 right-4 w-14 h-14 bg-primary-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-primary-600 transition-colors z-30"
+                    className="fixed right-4 w-14 h-14 bg-primary-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-primary-600 transition-colors z-30"
+                    style={{ bottom: fabBottomOffset }}
                 >
                     <Plus className="w-6 h-6" />
                 </button>

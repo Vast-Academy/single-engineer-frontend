@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, createContext, useContext } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect, createContext, useContext } from 'react';
 import { Bell } from 'lucide-react';
 import Header from './Header';
 import BottomNavigation from './BottomNavigation';
@@ -12,22 +12,34 @@ const LayoutContext = createContext({
 
 export const useLayoutContext = () => useContext(LayoutContext);
 
-const Layout = ({ children, bottomDock = null }) => {
+const Layout = ({ children, bottomDock = null, padForBottomStack = true }) => {
     const { notificationPermission, requestPermission, isSupported } = useNotifications(true);
     const [showBanner, setShowBanner] = useState(false);
     const { offlineWarning, toasts, syncAlert, clearSyncAlert } = useSync();
     const [bottomStackHeight, setBottomStackHeight] = useState(0);
+    const [headerHeight, setHeaderHeight] = useState(64);
+    const [bannerHeight, setBannerHeight] = useState(0);
     const bottomStackRef = useRef(null);
+    const headerRef = useRef(null);
+    const bannerRef = useRef(null);
 
     // Check if we should show notification permission banner
     useEffect(() => {
-        if (isSupported && notificationPermission === 'default') {
-            // Show banner after a short delay
-            const timer = setTimeout(() => {
-                setShowBanner(true);
-            }, 2000);
-            return () => clearTimeout(timer);
+        if (!isSupported) {
+            setShowBanner(false);
+            return;
         }
+
+        if (notificationPermission === 'granted' || notificationPermission === 'denied') {
+            setShowBanner(false);
+            return;
+        }
+
+        // Only show prompt when permission is in default state
+        const timer = setTimeout(() => {
+            setShowBanner(true);
+        }, 2000);
+        return () => clearTimeout(timer);
     }, [isSupported, notificationPermission]);
 
     const handleEnableNotifications = async () => {
@@ -38,7 +50,7 @@ const Layout = ({ children, bottomDock = null }) => {
     };
 
     // Track combined height of bottom dock + navigation for spacing calculations
-    useEffect(() => {
+    useLayoutEffect(() => {
         const element = bottomStackRef.current;
         if (!element) return;
 
@@ -61,22 +73,60 @@ const Layout = ({ children, bottomDock = null }) => {
         return () => window.removeEventListener('resize', handleResize);
     }, [bottomDock]);
 
-    // Expose bottom stack height via CSS variable for any child needing it
-    useEffect(() => {
+    // Track header + optional banner height for consistent top spacing
+    useLayoutEffect(() => {
+        const updateHeights = () => {
+            const headerRect = headerRef.current?.getBoundingClientRect();
+            const bannerRect = bannerRef.current?.getBoundingClientRect();
+            setHeaderHeight(Math.round(headerRect?.height || 0));
+            setBannerHeight(Math.round(bannerRect?.height || 0));
+        };
+
+        updateHeights();
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const observer = new ResizeObserver(updateHeights);
+            if (headerRef.current) observer.observe(headerRef.current);
+            if (bannerRef.current) observer.observe(bannerRef.current);
+            return () => observer.disconnect();
+        }
+
+        window.addEventListener('resize', updateHeights);
+        return () => window.removeEventListener('resize', updateHeights);
+    }, [showBanner]);
+
+    // Expose layout heights via CSS variables for any child needing them
+    useLayoutEffect(() => {
         document.documentElement.style.setProperty('--layout-bottom-stack', `${bottomStackHeight}px`);
         return () => {
             document.documentElement.style.removeProperty('--layout-bottom-stack');
         };
     }, [bottomStackHeight]);
 
-    const contentBottomPadding = bottomStackHeight + 16; // small breathing room above the dock stack
+    useLayoutEffect(() => {
+        const topOffset = headerHeight + bannerHeight;
+        document.documentElement.style.setProperty('--layout-top-offset', `${topOffset}px`);
+        return () => {
+            document.documentElement.style.removeProperty('--layout-top-offset');
+        };
+    }, [headerHeight, bannerHeight]);
+
+    const contentBottomPadding = padForBottomStack ? bottomStackHeight + 16 : 0; // avoid double scroll padding when pages manage their own offsets
+    const contentTopPadding = headerHeight + bannerHeight + 8;
+    const mainStyle = {
+        paddingTop: contentTopPadding,
+        ...(contentBottomPadding ? { paddingBottom: contentBottomPadding } : {})
+    };
 
     return (
         <LayoutContext.Provider value={{ bottomStackHeight }}>
             <div className="min-h-screen bg-gray-50">
                 {/* Notification Permission Banner */}
-                {showBanner && (
-                    <div className="fixed top-0 left-0 right-0 bg-primary-500 text-white p-3 z-50 flex items-center justify-between">
+                {/* {showBanner && (
+                    <div
+                        ref={bannerRef}
+                        className="fixed top-0 left-0 right-0 bg-primary-500 text-white p-3 z-[60] flex items-center justify-between"
+                    >
                         <div className="flex items-center gap-2">
                             <Bell className="w-5 h-5" />
                             <span className="text-sm">Enable notifications for work order reminders</span>
@@ -96,15 +146,15 @@ const Layout = ({ children, bottomDock = null }) => {
                             </button>
                         </div>
                     </div>
-                )}
+                )} */}
 
                 {/* Header */}
-                <Header />
+                <Header ref={headerRef} />
 
                 {/* Main Content - with padding for header and bottom stack */}
                 <main
-                    className={`pt-12 sm:pt-16 px-4 ${showBanner ? 'mt-12' : ''}`}
-                    style={{ paddingBottom: contentBottomPadding }}
+                    className="px-4"
+                    style={mainStyle}
                 >
                     {/* Offline warning */}
                     {offlineWarning && (

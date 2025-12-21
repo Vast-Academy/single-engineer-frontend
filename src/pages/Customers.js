@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
 import { FixedSizeList } from 'react-window';
@@ -11,6 +11,7 @@ import { ensureCustomersPulled, pullCustomersFromBackend } from '../storage/sync
 import { getCustomersDao } from '../storage/dao/customersDao';
 import { getWorkOrdersDao } from '../storage/dao/workOrdersDao';
 import { getBillsDao } from '../storage/dao/billsDao';
+import { useSync } from '../context/SyncContext';
 
 const ITEMS_PER_PAGE = 5;
 const ITEM_HEIGHT = 140; // 120 + 20px spacing
@@ -59,7 +60,7 @@ const CustomersContent = ({
     const [listHeight, setListHeight] = useState(600);
     const [listWidth, setListWidth] = useState(typeof window !== 'undefined' ? window.innerWidth - 32 : 0);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const calculateDimensions = () => {
             const rect = containerRef.current?.getBoundingClientRect();
             const dockHeight = bottomStackHeight || 0;
@@ -85,7 +86,10 @@ const CustomersContent = ({
             return (
                 <div className="bg-white rounded-xl p-8 shadow-sm text-center">
                     <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-3xl">dY"?</span>
+                        <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.982 18.725A8.966 8.966 0 0012 15.75a8.966 8.966 0 00-5.982 2.975m11.963 0A9 9 0 1112 3a9 9 0 015.982 15.725z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-800 mb-2">No Results</h3>
                     <p className="text-gray-500 text-sm">No customers match "{searchQuery}"</p>
@@ -96,7 +100,10 @@ const CustomersContent = ({
         return (
             <div className="bg-white rounded-xl p-8 shadow-sm text-center">
                 <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-3xl">dY`ПЭ</span>
+                    <svg className="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.982 18.725A8.966 8.966 0 0012 15.75a8.966 8.966 0 00-5.982 2.975m11.963 0A9 9 0 1112 3a9 9 0 015.982 15.725z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
                 </div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-2">No Customers</h3>
                 <p className="text-gray-500 text-sm mb-4">Add your first customer</p>
@@ -105,7 +112,11 @@ const CustomersContent = ({
     }
 
     return (
-        <div ref={containerRef} className="w-full">
+        <div
+            ref={containerRef}
+            className="w-full"
+            style={{ paddingBottom: (bottomStackHeight || 0) + 16 }}
+        >
             {listHeight > 0 && listWidth > 0 && (
                 <FixedSizeList
                     ref={listRef}
@@ -116,7 +127,7 @@ const CustomersContent = ({
                     onItemsRendered={handleItemsRendered}
                 >
                     {({ index, style }) => (
-                        <div style={{ ...style, paddingBottom: '20px' }} key={filteredCustomers[index]._id}>
+                        <div style={{ ...style, paddingBottom: '12px' }} key={filteredCustomers[index]._id}>
                             <CustomerCard
                                 customer={filteredCustomers[index]}
                                 onClick={handleCustomerClick}
@@ -146,6 +157,8 @@ const Customers = () => {
     const [hasMore, setHasMore] = useState(false);
     const [pendingWorkCounts, setPendingWorkCounts] = useState({});
     const listRef = useRef(null);
+    const { dataVersion } = useSync();
+    const pendingCountVersion = useRef(0);
 
     // Debounce search query for better performance
     const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -158,14 +171,11 @@ const Customers = () => {
         const bootstrap = async () => {
             setLoading(true);
             try {
-                // Ensure we have pulled at least once
                 await ensureCustomersPulled();
-                // Load first page from SQLite
                 await fetchCustomersFromLocal(1, true);
-                // Also kick off a fresh pull in background to refresh data
                 setBackgroundRefresh(true);
                 pullCustomersFromBackend()
-                    .then(() => fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true }))
+                    .then(() => fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true, showSkeleton: false }))
                     .catch(() => {})
                     .finally(() => setBackgroundRefresh(false));
             } catch (err) {
@@ -180,8 +190,9 @@ const Customers = () => {
     // Fetch pending work orders once to show badges on customer cards
     const fetchPendingWorkOrders = useCallback(async () => {
         try {
+            // Avoid redundant runs if dataVersion unchanged
+            if (pendingCountVersion.current === dataVersion) return;
             const dao = await getWorkOrdersDao();
-            // fetch a reasonable number to keep UI snappy; pending list unlikely to be huge
             const rows = await dao.list({ status: 'pending', limit: 2000, offset: 0 });
             const counts = {};
             rows.forEach(wo => {
@@ -190,11 +201,12 @@ const Customers = () => {
                     counts[customerId] = (counts[customerId] || 0) + 1;
                 }
             });
+            pendingCountVersion.current = dataVersion;
             setPendingWorkCounts(counts);
         } catch (error) {
             console.error('Fetch pending work orders error (local):', error);
         }
-    }, []);
+    }, [dataVersion]);
 
     useEffect(() => {
         fetchPendingWorkOrders();
@@ -202,9 +214,10 @@ const Customers = () => {
 
     const fetchCustomersFromLocal = async (page = 1, reset = false, search = '', options = {}) => {
         try {
-            if (reset && !options.silent) {
-                setLoading(true);
-            } else if (!options.silent) {
+            const { silent, showSkeleton = true } = options;
+            if (reset && !silent) {
+                if (showSkeleton) setLoading(true);
+            } else if (!silent) {
                 setLoadingMore(true);
             }
 
@@ -227,10 +240,17 @@ const Customers = () => {
                 syncError: r.sync_error || null
             }));
 
+            // Sort by totalDue in descending order (highest due first)
+            const sorted = mapped.sort((a, b) => b.totalDue - a.totalDue);
+
             if (reset) {
-                setCustomers(mapped);
+                setCustomers(sorted);
             } else {
-                setCustomers(prev => [...prev, ...mapped]);
+                setCustomers(prev => {
+                    const combined = [...prev, ...sorted];
+                    // Re-sort the combined list to maintain order
+                    return combined.sort((a, b) => b.totalDue - a.totalDue);
+                });
             }
 
             // Determine if more pages exist
@@ -253,7 +273,9 @@ const Customers = () => {
     // Handle add success
     const handleAddSuccess = (customer) => {
         const newCustomers = [customer, ...customers];
-        setCustomers(newCustomers);
+        // Sort by totalDue in descending order
+        const sorted = newCustomers.sort((a, b) => (b.totalDue || 0) - (a.totalDue || 0));
+        setCustomers(sorted);
     };
 
     // When search changes, reload from SQLite (filtered in query)
@@ -261,7 +283,7 @@ const Customers = () => {
         if (listRef.current) {
             listRef.current.scrollToItem(0);
         }
-        fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true });
+        fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true, showSkeleton: false });
     }, [debouncedSearchQuery]);
 
     const filteredCustomers = customers; // already filtered at query time
@@ -281,6 +303,7 @@ const Customers = () => {
 
     return (
         <Layout
+            padForBottomStack={false}
             bottomDock={
                 <CustomersBottomDock
                     searchQuery={searchQuery}
@@ -291,7 +314,7 @@ const Customers = () => {
         >
             <div>
                 {/* Fixed Page Header - Just below main Header */}
-                <div className="fixed top-[90px] left-0 right-0 z-30 bg-gray-50 px-4 py-3">
+                <div className="sticky top-[var(--layout-top-offset,64px)] z-40 bg-gray-50 px-4 py-3">
                     <div className="flex items-center gap-2">
                         <h1 className="text-xl font-bold text-gray-800">Customers</h1>
                         {backgroundRefresh && (
@@ -304,8 +327,8 @@ const Customers = () => {
                     <p className="text-gray-500 text-sm">Manage your customer database</p>
                 </div>
 
-                {/* Page Content with padding for fixed header */}
-                <div className="pt-[100px] pb-6">
+                {/* Page Content */}
+                <div className="pt-4 pb-6">
                     <CustomersContent
                         loading={loading}
                         filteredCustomers={filteredCustomers}
@@ -331,3 +354,6 @@ const Customers = () => {
 };
 
 export default Customers;
+
+
+

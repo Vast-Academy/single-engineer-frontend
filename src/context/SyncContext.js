@@ -43,6 +43,68 @@ export const SyncProvider = ({ children }) => {
         addToast('Sync failed. Will retry.', 'error', 3000);
     };
 
+    const triggerSync = async () => {
+        if (!isOnline) {
+            addToast('You are offline. Will sync when online.', 'info', 3000);
+            return;
+        }
+
+        // CRITICAL: Check authentication before attempting any sync
+        try {
+            await syncAuthGate.waitForAuth();
+        } catch (authError) {
+            console.error('Sync blocked: Not authenticated', authError.message);
+            addToast('Please login to sync data', 'error', 4000);
+            return;
+        }
+
+        const pushTasks = [pushCustomers, pushWorkOrders, pushBills, pushInventory, pushBankAccounts];
+        const pullTasks = [pullCustomersFromBackend, pullWorkOrdersFromBackend, pullBillsFromBackend];
+        const retries = 3;
+        const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                // Re-verify auth before each retry attempt
+                if (attempt > 1) {
+                    await syncAuthGate.waitForAuth();
+                }
+
+                console.log(`Sync attempt ${attempt}/${retries} starting...`);
+
+                for (const task of pushTasks) {
+                    await task();
+                }
+                for (const task of pullTasks) {
+                    await task();
+                }
+                setSyncAlert(null);
+                setDataVersion((v) => v + 1);
+                notifySynced();
+                console.log('Sync completed successfully');
+                return;
+            } catch (err) {
+                // Check if it's an authentication error
+                if (err.message && (
+                    err.message.includes('not authenticated') ||
+                    err.message.includes('Authentication required') ||
+                    err.message.includes('authentication token')
+                )) {
+                    console.error('Sync failed due to authentication:', err.message);
+                    addToast('Session expired. Please login again.', 'error', 5000);
+                    setSyncAlert('Authentication required. Please login.');
+                    return; // Don't retry on auth errors
+                }
+
+                console.error(`Sync attempt ${attempt} failed:`, err);
+                if (attempt === retries) {
+                    notifySyncFail();
+                } else {
+                    await delay(500 * attempt);
+                }
+            }
+        }
+    };
     // Listen to online/offline (browser) and verify with health check
     useEffect(() => {
         const ping = async () => {
@@ -82,66 +144,8 @@ export const SyncProvider = ({ children }) => {
 
     // When coming online, attempt sync with light backoff (push then pull core data)
     useEffect(() => {
-        const attemptSync = async () => {
-            // CRITICAL: Check authentication before attempting any sync
-            try {
-                await syncAuthGate.waitForAuth();
-            } catch (authError) {
-                console.error('❌ Sync blocked: Not authenticated', authError.message);
-                addToast('Please login to sync data', 'error', 4000);
-                return;
-            }
-
-            const pushTasks = [pushCustomers, pushWorkOrders, pushBills, pushInventory, pushBankAccounts];
-            const pullTasks = [pullCustomersFromBackend, pullWorkOrdersFromBackend, pullBillsFromBackend];
-            const retries = 3;
-            const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
-            for (let attempt = 1; attempt <= retries; attempt++) {
-                try {
-                    // Re-verify auth before each retry attempt
-                    if (attempt > 1) {
-                        await syncAuthGate.waitForAuth();
-                    }
-
-                    console.log(`🔄 Sync attempt ${attempt}/${retries} starting...`);
-
-                    for (const task of pushTasks) {
-                        await task();
-                    }
-                    for (const task of pullTasks) {
-                        await task();
-                    }
-                    setSyncAlert(null);
-                    setDataVersion((v) => v + 1);
-                    notifySynced();
-                    console.log('✓ Sync completed successfully');
-                    return;
-                } catch (err) {
-                    // Check if it's an authentication error
-                    if (err.message && (
-                        err.message.includes('not authenticated') ||
-                        err.message.includes('Authentication required') ||
-                        err.message.includes('authentication token')
-                    )) {
-                        console.error('❌ Sync failed due to authentication:', err.message);
-                        addToast('Session expired. Please login again.', 'error', 5000);
-                        setSyncAlert('Authentication required. Please login.');
-                        return; // Don't retry on auth errors
-                    }
-
-                    console.error(`Sync attempt ${attempt} failed:`, err);
-                    if (attempt === retries) {
-                        notifySyncFail();
-                    } else {
-                        await delay(500 * attempt);
-                    }
-                }
-            }
-        };
-
         if (isOnline) {
-            attemptSync();
+            triggerSync();
         }
     }, [isOnline]);
 
@@ -154,6 +158,7 @@ export const SyncProvider = ({ children }) => {
         notifyLocalSave,
         notifySynced,
         notifySyncFail,
+        triggerSync,
         clearSyncAlert: () => setSyncAlert(null),
         bumpDataVersion: () => setDataVersion((v) => v + 1)
     }), [isOnline, toasts, syncAlert, dataVersion]);
@@ -166,3 +171,6 @@ export const SyncProvider = ({ children }) => {
 };
 
 export default SyncProvider;
+
+
+

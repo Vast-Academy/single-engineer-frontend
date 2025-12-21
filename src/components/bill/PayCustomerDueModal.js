@@ -3,6 +3,8 @@ import { X, Banknote, Smartphone, QrCode, ChevronDown, AlertCircle, CheckCircle 
 import { QRCodeSVG } from 'qrcode.react';
 import SummaryApi from '../../common';
 import { apiClient } from '../../utils/apiClient';
+import { useSync } from '../../context/SyncContext';
+import { getBillsDao } from '../../storage/dao/billsDao';
 
 const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess }) => {
     const [loading, setLoading] = useState(false);
@@ -20,6 +22,7 @@ const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess 
     const [transactionId, setTransactionId] = useState('');
     const [transactionIdError, setTransactionIdError] = useState('');
     const [loadingBanks, setLoadingBanks] = useState(false);
+    const { triggerSync, bumpDataVersion } = useSync();
 
     const dueAmount = totalDue || 0;
 
@@ -203,9 +206,15 @@ const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess 
 
             const data = await response.json();
             if (data.success) {
+                if (Array.isArray(data.affectedBills) && data.affectedBills.length > 0) {
+                    const billsDao = await getBillsDao();
+                    await billsDao.upsertMany(data.affectedBills);
+                }
                 setPaidAmount(numAmount);
                 setAffectedBillsCount(data.affectedBills?.length || 0);
                 setShowSuccess(true);
+                bumpDataVersion();
+                triggerSync().catch(() => {});
                 onSuccess();
             } else {
                 alert(data.message || 'Failed to process payment');
@@ -234,13 +243,16 @@ const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess 
         onClose();
     };
 
+    const overlayBottomPadding = 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))';
+
     if (!isOpen) return null;
 
     // Success Screen
     if (showSuccess) {
         return (
             <div
-                className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-50 flex items-center justify-center"
+                className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"
+                style={{ paddingBottom: overlayBottomPadding }}
             >
                 <div className="bg-white w-full sm:max-w-sm mx-4 rounded-2xl overflow-hidden">
                     <div className="p-8 text-center">
@@ -293,10 +305,11 @@ const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess 
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: overlayBottomPadding }}
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
                     <h2 className="text-lg font-semibold text-gray-800">Pay Customer Due</h2>
@@ -309,7 +322,7 @@ const PayCustomerDueModal = ({ isOpen, onClose, customerId, totalDue, onSuccess 
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="p-4 modal-body">
                     {/* Due Amount Display */}
                     <div className="bg-red-50 rounded-xl p-4 mb-4 text-center">
                         <p className="text-sm text-red-600 mb-1">Total Due</p>

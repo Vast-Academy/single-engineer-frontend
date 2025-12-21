@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X } from 'lucide-react';
+import { X, Info } from 'lucide-react';
 import SummaryApi from '../../common';
 import { getItemsDao } from '../../storage/dao/itemsDao';
 import { pushInventory } from '../../storage/sync/pushInventory';
@@ -118,7 +118,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
     };
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        e?.preventDefault?.();
         setLoading(true);
 
         try {
@@ -270,9 +270,9 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                 {/* Form */}
                 <form
                     onSubmit={handleSubmit}
-                    className="p-4 overflow-y-auto flex-1"
-                    style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 200px)' }}
+                    className="flex flex-col flex-1"
                 >
+                    <div className="p-4 modal-body">
                     {/* Item Type */}
                     {!editItem && (
                         <div className="mb-4">
@@ -353,6 +353,16 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>
+
+                        {/* Warranty Notice for Generic Items */}
+                        {formData.itemType === 'generic' && formData.warranty !== 'no_warranty' && (
+                            <div className="mt-3 flex gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                <p className="text-sm text-blue-800 leading-relaxed">
+                                    <span className="font-semibold">Note:</span> This warranty is for display purposes only on bills. The app's warranty tracking system does not apply to generic products.
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Prices */}
@@ -397,25 +407,26 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                             />
                         </div>
                     </div>
-                </form>
+                    </div>
 
-                {/* Footer */}
-                <div className="flex gap-3 p-4 pb-8 border-t bg-white modal-footer-safe">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex-1 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={loading || !!nameError}
-                        className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {loading ? 'Saving...' : (editItem ? 'Update Item' : 'Add Item')}
-                    </button>
-                </div>
+                    {/* Footer */}
+                    <div className="flex gap-3 p-4 pb-8 border-t bg-white modal-footer-safe">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={loading || !!nameError}
+                            className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? 'Saving...' : (editItem ? 'Update Item' : 'Add Item')}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );

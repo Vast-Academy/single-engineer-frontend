@@ -29,7 +29,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
             onClick={onClose}
         >
             <div
-                className="bg-white w-full rounded-t-3xl shadow-2xl animate-slide-up"
+                className="bg-white w-full rounded-t-3xl shadow-2xl animate-slide-up flex flex-col modal-shell"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -44,7 +44,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
                 </div>
 
                 {/* Options */}
-                <div className="divide-y divide-gray-100 pb-6">
+                <div className="divide-y divide-gray-100 pb-6 modal-body">
                     <SettingItem
                         icon={User}
                         label="Edit Profile"

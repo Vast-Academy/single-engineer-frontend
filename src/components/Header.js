@@ -1,13 +1,14 @@
+import { forwardRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
 
-const Header = () => {
+const Header = forwardRef((props, ref) => {
     const { user } = useAuth();
     const navigate = useNavigate();
 
     return (
-        <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50 safe-area-top">
+        <header ref={ref} className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50 safe-area-top">
             <div className="px-4 py-1 flex items-center justify-between">
                 {/* User Profile - Left Side */}
                 <button
@@ -45,6 +46,6 @@ const Header = () => {
             </div>
         </header>
     );
-};
+});
 
 export default Header;

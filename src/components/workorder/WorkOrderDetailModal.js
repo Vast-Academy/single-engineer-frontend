@@ -6,9 +6,12 @@ import BillSummaryStep from '../bill/steps/BillSummaryStep';
 import PaymentStep from '../bill/steps/PaymentStep';
 import ConfirmationStep from '../bill/steps/ConfirmationStep';
 import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
+import { getBillsDao } from '../../storage/dao/billsDao';
 import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
 import { useSync } from '../../context/SyncContext';
+import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../utils/apiClient';
+import { downloadBillPdf, shareBillPdf, viewBillPdf } from '../../utils/billPdf';
 
 const STEPS = {
     WORK_NOTE_INVENTORY: 1,
@@ -49,8 +52,12 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // Created bill data
     const [createdBill, setCreatedBill] = useState(null);
+    const [downloadingBill, setDownloadingBill] = useState(false);
+    const [sharingBill, setSharingBill] = useState(false);
+    const [viewingBill, setViewingBill] = useState(false);
 
     const { notifyLocalSave, bumpDataVersion } = useSync();
+    const { user } = useAuth();
 
     // Calculate totals
     const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
@@ -352,6 +359,9 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             const data = await response.json();
 
             if (data.success) {
+                const billsDao = await getBillsDao();
+                await billsDao.upsertMany([data.bill]);
+                bumpDataVersion();
                 setCreatedBill(data.bill);
                 setCurrentStep(STEPS.SUCCESS);
                 // Don't call onUpdate here - will call after user clicks Done
@@ -396,6 +406,57 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         onClose();
     };
 
+    const handleViewBill = async () => {
+        if (!createdBill) return;
+        try {
+            setViewingBill(true);
+            await viewBillPdf({
+                bill: createdBill,
+                customer: workOrder?.customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('View PDF error:', error);
+            alert('Unable to open the PDF viewer right now.');
+        } finally {
+            setViewingBill(false);
+        }
+    };
+
+    const handleDownloadBill = async () => {
+        if (!createdBill) return;
+        try {
+            setDownloadingBill(true);
+            await downloadBillPdf({
+                bill: createdBill,
+                customer: workOrder?.customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('Download PDF error:', error);
+            alert('Failed to download PDF. Please try again.');
+        } finally {
+            setDownloadingBill(false);
+        }
+    };
+
+    const handleShareBill = async () => {
+        if (!createdBill) return;
+        try {
+            setSharingBill(true);
+            await shareBillPdf({
+                bill: createdBill,
+                customer: workOrder?.customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('Share PDF error:', error);
+            alert('Unable to share right now. The PDF has been prepared/downloaded.');
+        } finally {
+            setSharingBill(false);
+        }
+    };
+
     // Call customer
     const handleCall = () => {
         if (workOrder?.customer?.phoneNumber) {
@@ -434,14 +495,19 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         });
     };
 
+    const overlayBottomPadding = 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))';
+
     if (!isOpen || !workOrder) return null;
 
     // Success Screen - Show this first before checking completion status
     // This prevents showing completed view when user is in the middle of billing flow
     if (currentStep === STEPS.SUCCESS) {
         return (
-            <div className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div
+                className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+                style={{ paddingBottom: overlayBottomPadding }}
+            >
+                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell">
                     <div className="flex-1 flex flex-col items-center justify-center p-8">
                         <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
                             <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -487,7 +553,30 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                         )}
                     </div>
 
-                    <div className="p-4 border-t">
+                    <div className="p-4 border-t space-y-3">
+                        <div className="grid grid-cols-3 gap-2">
+                            <button
+                                onClick={handleViewBill}
+                                disabled={!createdBill || viewingBill}
+                                className="py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600 disabled:opacity-50"
+                            >
+                                {viewingBill ? 'Opening...' : 'View Bill'}
+                            </button>
+                            <button
+                                onClick={handleDownloadBill}
+                                disabled={!createdBill || downloadingBill}
+                                className="py-3 bg-blue-50 text-blue-700 font-medium rounded-xl hover:bg-blue-100 disabled:opacity-50"
+                            >
+                                {downloadingBill ? 'Downloading...' : 'Download'}
+                            </button>
+                            <button
+                                onClick={handleShareBill}
+                                disabled={!createdBill || sharingBill}
+                                className="py-3 bg-green-50 text-green-700 font-medium rounded-xl hover:bg-green-100 disabled:opacity-50"
+                            >
+                                {sharingBill ? 'Sharing...' : 'Share'}
+                            </button>
+                        </div>
                         <button
                             onClick={handleDone}
                             className="w-full py-3 bg-primary-500 text-white font-medium rounded-xl hover:bg-primary-600"
@@ -507,13 +596,15 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     // For completed work orders, show a simple detail view
     if (isCompleted) {
         return (
-            <div className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
-                onClick={(e) => {
-                    if (e.target === e.currentTarget) {
-                        onClose();
-                    }
-                }}>
-                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                <div
+                    className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+                    style={{ paddingBottom: overlayBottomPadding }}
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                            onClose();
+                        }
+                    }}>
+                <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell">
                     {/* Header */}
                     <div className="p-4 bg-gradient-to-r from-green-500 to-green-600">
                         <div className="flex items-center justify-between mb-3">
@@ -532,7 +623,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="p-4 modal-body">
                         {/* Customer Info */}
                         <div className="bg-gray-50 rounded-xl p-4 mb-4">
                             <div className="flex items-start justify-between">
@@ -601,7 +692,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     return (
         <>
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] sm:bottom-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: overlayBottomPadding }}
             onClick={handleOverlayClick}
         >
             <div className="bg-white w-full h-full sm:max-w-lg sm:h-[90vh] sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden shadow-xl">
@@ -694,7 +786,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
                 {/* Edit Mode */}
                 {currentStep === STEPS.WORK_NOTE_INVENTORY && isEditingWorkOrder && (
-                    <div className="flex-1 overflow-y-auto p-4">
+                    <div className="p-4 modal-body">
                         <div className="space-y-4">
                             {/* Customer Info - Read Only */}
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">

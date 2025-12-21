@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { X } from 'lucide-react';
 import SummaryApi from '../../common';
 import { getServicesDao } from '../../storage/dao/servicesDao';
-import { pushInventory } from '../../storage/sync/pushInventory';
 import { useSync } from '../../context/SyncContext';
+import { apiClient } from '../../utils/apiClient';
 
 const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => {
     const [loading, setLoading] = useState(false);
@@ -72,38 +72,89 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
         setLoading(true);
 
         try {
-            const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `svc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const now = new Date().toISOString();
-            const payload = {
-                id: editService?._id || editService?.id || clientId,
-                client_id: editService?.client_id || clientId,
-                service_name: formData.serviceName.trim(),
-                service_price: Number(formData.servicePrice),
-                created_by: null,
-                deleted: 0,
-                updated_at: now,
-                created_at: editService ? editService.createdAt || editService.created_at || now : now,
-                pending_sync: 1,
-                sync_op: editService ? 'update' : 'create',
-                sync_error: null
-            };
+            let savedService = null;
 
-            const dao = await getServicesDao();
-            if (editService) {
-                await dao.upsertOne(payload);
+            if (!editService) {
+                if (!navigator.onLine) {
+                    alert('You are offline. New services can only be added when you are online.');
+                    setLoading(false);
+                    return;
+                }
+
+                const response = await apiClient(SummaryApi.addService.url, {
+                    method: SummaryApi.addService.method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        serviceName: formData.serviceName.trim(),
+                        servicePrice: Number(formData.servicePrice)
+                    })
+                });
+                const data = await response.json();
+                if (!data.success || !data.service?._id) {
+                    throw new Error(data.message || 'Failed to create service on server');
+                }
+
+                savedService = {
+                    id: data.service._id,
+                    client_id: data.service._id,
+                    service_name: data.service.serviceName || data.service.service_name || formData.serviceName.trim(),
+                    service_price: data.service.servicePrice ?? data.service.service_price ?? Number(formData.servicePrice),
+                    created_by: data.service.createdBy || data.service.created_by || null,
+                    deleted: data.service.deleted || false,
+                    updated_at: data.service.updatedAt || data.service.updated_at || now,
+                    created_at: data.service.createdAt || data.service.created_at || now,
+                    pending_sync: 0,
+                    sync_op: null,
+                    sync_error: null
+                };
             } else {
-                await dao.insertLocal(payload);
+                if (!navigator.onLine) {
+                    alert('You are offline. Editing services requires an online connection.');
+                    setLoading(false);
+                    return;
+                }
+
+                const serverId = editService._id || editService.id;
+                const response = await apiClient(`${SummaryApi.updateService.url}/${serverId}`, {
+                    method: SummaryApi.updateService.method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        serviceName: formData.serviceName.trim(),
+                        servicePrice: Number(formData.servicePrice)
+                    })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to update service on server');
+                }
+
+                savedService = {
+                    id: serverId,
+                    client_id: editService?.client_id || serverId,
+                    service_name: formData.serviceName.trim(),
+                    service_price: Number(formData.servicePrice),
+                    created_by: editService?.createdBy || editService?.created_by || null,
+                    deleted: 0,
+                    updated_at: data.service?.updatedAt || data.service?.updated_at || now,
+                    created_at: editService?.createdAt || editService?.created_at || now,
+                    pending_sync: 0,
+                    sync_op: null,
+                    sync_error: null
+                };
             }
 
+            const dao = await getServicesDao();
+            await dao.upsertOne(savedService);
+
             onSuccess({
-                _id: payload.id,
-                serviceName: payload.service_name,
-                servicePrice: payload.service_price,
-                pendingSync: true
+                _id: savedService.id,
+                serviceName: savedService.service_name,
+                servicePrice: savedService.service_price,
+                pendingSync: false
             });
             onClose();
             notifyLocalSave();
-            pushInventory().catch(() => {});
         } catch (error) {
             console.error('Save service error:', error);
             alert('Failed to save service');
@@ -136,8 +187,7 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
                 {/* Form */}
                 <form
                     onSubmit={handleSubmit}
-                    className="p-4 overflow-y-auto flex-1"
-                    style={{ maxHeight: 'calc(var(--app-viewport-height, 100vh) - 200px)' }}
+                    className="p-4 modal-body"
                 >
                     {/* Service Name */}
                     <div className="mb-4">

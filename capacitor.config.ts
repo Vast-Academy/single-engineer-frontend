@@ -4,13 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.workops.app',
   appName: 'WorkOp',
   webDir: 'build',
-  server: {
-    // For development - allows live reload from local server
-    // Comment out these lines for production build
-    // url: 'http://192.168.1.100:3000', // Replace with your computer's IP
-    // cleartext: true,
-    androidScheme: 'https'
-  },
   plugins: {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert']

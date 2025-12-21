@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { FixedSizeList } from 'react-window';
 import Layout, { useLayoutContext } from '../components/Layout';
 import AddServiceModal from '../components/inventory/AddServiceModal';
@@ -8,8 +8,9 @@ import { SkeletonInventoryPage } from '../components/common/SkeletonLoaders';
 import useDebounce from '../hooks/useDebounce';
 import { getServicesDao } from '../storage/dao';
 import { pullInventory } from '../storage/sync/inventorySync';
-import { pushInventory } from '../storage/sync/pushInventory';
 import { useSync } from '../context/SyncContext';
+import SummaryApi from '../common';
+import { apiClient } from '../utils/apiClient';
 
 const ITEMS_PER_PAGE = 5;
 const SERVICE_ITEM_HEIGHT = 150; // 130 + 20px spacing
@@ -55,7 +56,7 @@ const ServicesContent = ({
     const [listHeight, setListHeight] = useState(600);
     const [listWidth, setListWidth] = useState(typeof window !== 'undefined' ? window.innerWidth - 32 : 0);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         const calculateDimensions = () => {
             const rect = containerRef.current?.getBoundingClientRect();
             const dockHeight = bottomStackHeight || 0;
@@ -92,7 +93,11 @@ const ServicesContent = ({
     }
 
     return (
-        <div ref={containerRef} className="w-full">
+        <div
+            ref={containerRef}
+            className="w-full"
+            style={{ paddingBottom: (bottomStackHeight || 0) + 16 }}
+        >
             {listHeight > 0 && listWidth > 0 && (
                 <FixedSizeList
                     ref={servicesListRef}
@@ -144,7 +149,7 @@ const Services = () => {
             try {
                 await loadServicesFromLocal(1, true);
                 pullInventory().then(async () => {
-                    await loadServicesFromLocal(1, true);
+                    await loadServicesFromLocal(1, true, { showSkeleton: false });
                 }).catch(() => {});
             } finally {
                 setLoading(false);
@@ -161,9 +166,14 @@ const Services = () => {
         syncError: service.sync_error || null
     });
 
-    const loadServicesFromLocal = async (page = 1, reset = false) => {
+    const loadServicesFromLocal = async (page = 1, reset = false, options = {}) => {
+        const { showSkeleton = true } = options;
         try {
-            if (reset) setLoading(true); else setLoadingMoreServices(true);
+            if (reset) {
+                if (showSkeleton) setLoading(true);
+            } else {
+                setLoadingMoreServices(true);
+            }
             const dao = await getServicesDao();
             const offset = (page - 1) * ITEMS_PER_PAGE;
             const rows = await dao.list({ limit: ITEMS_PER_PAGE, offset });
@@ -190,7 +200,11 @@ const Services = () => {
     };
 
     const handleDeleteService = (service) => {
-        if (service.pendingSync || (service._id && service._id.startsWith('client-'))) {
+        if (!navigator.onLine) {
+            alert('You are offline. Deleting services requires an online connection.');
+            return;
+        }
+        if (service._id && service._id.startsWith('client-')) {
             alert('Please wait for this service to sync before deleting.');
             return;
         }
@@ -204,14 +218,34 @@ const Services = () => {
         setDeleteLoading(true);
         try {
             if (deleteTarget.type === 'service') {
+                const serviceId = deleteTarget.data._id;
+                const response = await apiClient(`${SummaryApi.deleteService.url}/${serviceId}`, {
+                    method: SummaryApi.deleteService.method
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to delete service on server');
+                }
+
                 const dao = await getServicesDao();
-                await dao.markPendingDelete(deleteTarget.data._id);
-                setServices(services.filter(s => s._id !== deleteTarget.data._id));
+                await dao.upsertOne({
+                    id: serviceId,
+                    client_id: deleteTarget.data.client_id || serviceId,
+                    service_name: deleteTarget.data.serviceName || '',
+                    service_price: deleteTarget.data.servicePrice || 0,
+                    created_by: deleteTarget.data.createdBy || deleteTarget.data.created_by || null,
+                    deleted: true,
+                    updated_at: new Date().toISOString(),
+                    created_at: deleteTarget.data.createdAt || deleteTarget.data.created_at || new Date().toISOString(),
+                    pending_sync: 0,
+                    sync_op: null,
+                    sync_error: null
+                });
+                setServices(services.filter(s => s._id !== serviceId));
             }
             setShowDeleteModal(false);
             setDeleteTarget(null);
             notifyLocalSave();
-            pushInventory().catch(() => {});
         } catch (error) {
             console.error('Delete error:', error);
             alert('Failed to delete');
@@ -257,6 +291,7 @@ const Services = () => {
 
     return (
         <Layout
+            padForBottomStack={false}
             bottomDock={
                 <ServicesBottomDock
                     searchQuery={searchQuery}
@@ -266,12 +301,12 @@ const Services = () => {
             }
         >
             <div>
-                <div className="fixed top-[90px] left-0 right-0 bg-gray-50 z-30 px-4 py-3">
+                <div className="sticky top-[var(--layout-top-offset,64px)] z-40 bg-gray-50 px-4 py-3">
                     <h1 className="text-xl font-bold text-gray-800">Services</h1>
                     <p className="text-gray-500 text-sm">Manage your service offerings</p>
                 </div>
 
-                <div className="pt-[100px] pb-6">
+                <div className="pt-4 pb-6">
                     <ServicesContent
                         loading={loading}
                         filteredServices={filteredServices}

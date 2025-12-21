@@ -259,10 +259,13 @@ class BillsDao extends BaseDao {
                 console.warn('Skipping bill with no id/_id', b);
                 continue;
             }
+            const customerFromPayload = b.customer && typeof b.customer === 'object'
+                ? (b.customer._id || b.customer.id)
+                : b.customer;
             const mapped = {
                 id: billId,
                 client_id: b.client_id,
-                customer_id: (b.customer && (b.customer._id || b.customer.id)) || b.customer_id || null,
+                customer_id: customerFromPayload || b.customer_id || b.customerId || null,
                 bill_number: b.billNumber || b.bill_number,
                 subtotal: b.subtotal ?? 0,
                 discount: b.discount ?? 0,

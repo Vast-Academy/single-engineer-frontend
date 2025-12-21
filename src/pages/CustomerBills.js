@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Receipt, Plus, ClipboardList, Pencil, CreditCard, FileText, Wrench } from 'lucide-react';
+import { ArrowLeft, Receipt, Plus, ClipboardList, Pencil, CreditCard, FileText, Wrench, MoreVertical, Trash2, AlertCircle } from 'lucide-react';
 import BillCard from '../components/bill/BillCard';
 import CreateBillModal from '../components/bill/CreateBillModal';
 import WorkOrderCard from '../components/workorder/WorkOrderCard';
@@ -8,6 +8,8 @@ import WorkOrderDetailModal from '../components/workorder/WorkOrderDetailModal';
 import CreateWorkOrderModal from '../components/workorder/CreateWorkOrderModal';
 import EditCustomerModal from '../components/customer/EditCustomerModal';
 import PayCustomerDueModal from '../components/bill/PayCustomerDueModal';
+import ProfileWarningModal from '../components/auth/ProfileWarningModal';
+import BusinessProfileModal from '../components/auth/BusinessProfileModal';
 import { SkeletonBillsPage, SkeletonWorkOrdersPage } from '../components/common/SkeletonLoaders';
 import { ensureBillsPulled, pullBillsFromBackend } from '../storage/sync/billsSync';
 import { getBillsDao } from '../storage/dao/billsDao';
@@ -15,10 +17,14 @@ import { getCustomersDao } from '../storage/dao/customersDao';
 import { pushCustomers } from '../storage/sync/pushCustomers';
 import { useSync } from '../context/SyncContext';
 import { getWorkOrdersDao } from '../storage/dao/workOrdersDao';
+import { useAuth } from '../context/AuthContext';
+import { useLayoutContext } from '../components/Layout';
 
 const CustomerBills = () => {
     const navigate = useNavigate();
     const { customerId } = useParams();
+    const { user } = useAuth();
+    const { bottomStackHeight } = useLayoutContext();
 
     // Active tab state
     const [activeTab, setActiveTab] = useState('bills'); // 'bills' | 'workorders'
@@ -34,13 +40,20 @@ const CustomerBills = () => {
     const [showCreateWorkOrder, setShowCreateWorkOrder] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showPayDue, setShowPayDue] = useState(false);
+    const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+    const [showDeleteWarning, setShowDeleteWarning] = useState(false);
+    const [showProfileWarning, setShowProfileWarning] = useState(false);
+    const [showBusinessProfile, setShowBusinessProfile] = useState(false);
     const { notifyLocalSave, dataVersion } = useSync();
+    const lastCustomerFetch = useRef(null);
 
     // Work order detail modal
     const [selectedWorkOrder, setSelectedWorkOrder] = useState(null);
     const [showWorkOrderDetail, setShowWorkOrderDetail] = useState(false);
     const [touchStartX, setTouchStartX] = useState(null);
+    const [touchStartY, setTouchStartY] = useState(null);
     const [touchEndX, setTouchEndX] = useState(null);
+    const [touchEndY, setTouchEndY] = useState(null);
     const SWIPE_THRESHOLD = 60;
 
     // Always fetch customer data fresh on mount
@@ -58,8 +71,21 @@ const CustomerBills = () => {
         }
     }, [customerId, dataVersion]);
 
+    // Close options menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (showOptionsMenu && !e.target.closest('.relative')) {
+                setShowOptionsMenu(false);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [showOptionsMenu]);
+
     const fetchCustomer = async () => {
         try {
+            if (customer && lastCustomerFetch.current === dataVersion) return;
+
             const dao = await getCustomersDao();
             const local = await dao.getById(customerId);
             if (local) {
@@ -73,6 +99,7 @@ const CustomerBills = () => {
             } else {
                 setCustomer(null);
             }
+            lastCustomerFetch.current = dataVersion;
         } catch (error) {
             console.error('Fetch customer (local) error:', error);
         }
@@ -195,6 +222,29 @@ const CustomerBills = () => {
         fetchWorkOrders(); // Refresh work orders as well
     };
 
+    // Handle create bill click with profile check
+    const handleCreateBillClick = () => {
+        // Check if business profile is complete
+        if (!user?.businessProfile?.isComplete) {
+            setShowProfileWarning(true);
+            return;
+        }
+        // Profile is complete, show create bill modal
+        setShowCreateBill(true);
+    };
+
+    // Handle complete profile from warning modal
+    const handleCompleteProfile = () => {
+        setShowProfileWarning(false);
+        setShowBusinessProfile(true);
+    };
+
+    // Handle business profile success
+    const handleBusinessProfileSuccess = () => {
+        // After profile is completed, open create bill modal
+        setShowCreateBill(true);
+    };
+
     // Handle work order creation success
     const handleWorkOrderCreated = (newWorkOrder) => {
         fetchWorkOrders();
@@ -212,6 +262,20 @@ const CustomerBills = () => {
         setCustomer(updatedCustomer);
     };
 
+    // Handle delete click from options menu
+    const handleDeleteClick = () => {
+        // Check if customer has bills or work orders
+        if (bills.length > 0 || workOrders.length > 0) {
+            setShowDeleteWarning(true);
+            return;
+        }
+
+        // Confirm and delete
+        if (window.confirm(`Are you sure you want to delete "${customer.customerName}"?`)) {
+            handleCustomerDelete(customer);
+        }
+    };
+
     // Handle customer delete - navigate back to customers
     const handleCustomerDelete = async (customerToDelete) => {
         try {
@@ -226,23 +290,46 @@ const CustomerBills = () => {
         }
     };
 
+    const actionBarBottom = `calc(${bottomStackHeight || 0}px + var(--app-safe-area-bottom, 0px) + 8px)`;
+
     return (
         <div
             className="pb-40"
-            onTouchStart={(e) => setTouchStartX(e.changedTouches[0].clientX)}
-            onTouchMove={(e) => setTouchEndX(e.changedTouches[0].clientX)}
+            onTouchStart={(e) => {
+                setTouchStartX(e.changedTouches[0].clientX);
+                setTouchStartY(e.changedTouches[0].clientY);
+            }}
+            onTouchMove={(e) => {
+                setTouchEndX(e.changedTouches[0].clientX);
+                setTouchEndY(e.changedTouches[0].clientY);
+            }}
             onTouchEnd={() => {
-                if (touchStartX === null || touchEndX === null) return;
-                const delta = touchEndX - touchStartX;
-                if (Math.abs(delta) > SWIPE_THRESHOLD) {
-                    if (delta < 0 && activeTab === 'bills') {
+                if (touchStartX === null || touchEndX === null || touchStartY === null || touchEndY === null) {
+                    setTouchStartX(null);
+                    setTouchStartY(null);
+                    setTouchEndX(null);
+                    setTouchEndY(null);
+                    return;
+                }
+
+                const deltaX = touchEndX - touchStartX;
+                const deltaY = touchEndY - touchStartY;
+                const absDeltaX = Math.abs(deltaX);
+                const absDeltaY = Math.abs(deltaY);
+
+                // Only trigger swipe if horizontal movement is greater than vertical
+                if (absDeltaX > absDeltaY && absDeltaX > SWIPE_THRESHOLD) {
+                    if (deltaX < 0 && activeTab === 'bills') {
                         setActiveTab('workorders');
-                    } else if (delta > 0 && activeTab === 'workorders') {
+                    } else if (deltaX > 0 && activeTab === 'workorders') {
                         setActiveTab('bills');
                     }
                 }
+
                 setTouchStartX(null);
+                setTouchStartY(null);
                 setTouchEndX(null);
+                setTouchEndY(null);
             }}
         >
             {/* Header */}
@@ -258,15 +345,48 @@ const CustomerBills = () => {
                         <h1 className="text-xl font-bold text-gray-800">
                             {customer?.customerName || 'Customer'}
                         </h1>
-                        <button
-                            onClick={() => setShowEditModal(true)}
-                            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-                        >
-                            <Pencil className="w-4 h-4 text-gray-600" />
-                        </button>
                     </div>
                     {customer?.phoneNumber && (
                         <p className="text-gray-500 text-sm">{customer.phoneNumber}</p>
+                    )}
+                </div>
+
+                {/* 3-Dots Options Menu */}
+                <div className="relative">
+                    <button
+                        onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+                    >
+                        <MoreVertical className="w-5 h-5 text-gray-600" />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showOptionsMenu && (
+                        <div className="absolute right-0 top-10 bg-white rounded-xl shadow-lg border border-gray-200 py-2 w-40 z-30">
+                            {/* Edit Option */}
+                            <button
+                                onClick={() => {
+                                    setShowOptionsMenu(false);
+                                    setShowEditModal(true);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-gray-700"
+                            >
+                                <Pencil className="w-4 h-4 text-gray-600" />
+                                Edit
+                            </button>
+
+                            {/* Delete Option */}
+                            <button
+                                onClick={() => {
+                                    setShowOptionsMenu(false);
+                                    handleDeleteClick();
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-red-600"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                            </button>
+                        </div>
                     )}
                 </div>
             </div>
@@ -287,7 +407,7 @@ const CustomerBills = () => {
                     onClick={() => setActiveTab('workorders')}
                     className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${
                         activeTab === 'workorders'
-                            ? 'bg-white text-purple-600 shadow-sm'
+                            ? 'bg-white text-orange-600 shadow-sm'
                             : 'text-gray-600'
                     }`}
                 >
@@ -343,7 +463,7 @@ const CustomerBills = () => {
                             <h3 className="text-lg font-semibold text-gray-800 mb-2">No Bills Yet</h3>
                             <p className="text-gray-500 text-sm mb-4">Create the first bill for this customer</p>
                             <button
-                                onClick={() => setShowCreateBill(true)}
+                                onClick={handleCreateBillClick}
                                 className="px-6 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600"
                             >
                                 Create Bill
@@ -432,7 +552,10 @@ const CustomerBills = () => {
             )}
 
             {/* Action Buttons - Fixed at bottom */}
-            <div className="fixed bottom-[70px] left-0 right-0 bg-white border-t border-gray-200 p-4 z-20">
+            <div
+                className="fixed left-0 right-0 bg-white border-t border-gray-200 p-4 z-20"
+                style={{ bottom: actionBarBottom }}
+            >
                 <div className="grid grid-cols-3 gap-4 max-w-xl mx-auto">
                     {/* Pay Due */}
                     <button
@@ -450,7 +573,7 @@ const CustomerBills = () => {
 
                     {/* New Bill */}
                     <button
-                        onClick={() => setShowCreateBill(true)}
+                        onClick={handleCreateBillClick}
                         className="flex flex-col items-center gap-1 py-3 bg-green-50 rounded-xl hover:bg-green-100 transition-colors"
                     >
                         <FileText className="w-6 h-6 text-green-600" />
@@ -509,7 +632,6 @@ const CustomerBills = () => {
                     onClose={() => setShowEditModal(false)}
                     customer={customer}
                     onSuccess={handleCustomerUpdate}
-                    onDelete={handleCustomerDelete}
                 />
             )}
 
@@ -520,6 +642,84 @@ const CustomerBills = () => {
                 customerId={customerId}
                 totalDue={totalDue}
                 onSuccess={handlePaymentSuccess}
+            />
+
+            {/* Delete Warning Modal */}
+            {showDeleteWarning && (
+                <div
+                    className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                            setShowDeleteWarning(false);
+                        }
+                    }}
+                >
+                    <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+                        {/* Icon */}
+                        <div className="flex items-center justify-center mb-4">
+                            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                                <AlertCircle className="w-8 h-8 text-red-600" />
+                            </div>
+                        </div>
+
+                        {/* Title */}
+                        <h3 className="text-xl font-bold text-gray-900 text-center mb-3">
+                            Cannot Delete Customer
+                        </h3>
+
+                        {/* Message */}
+                        <p className="text-gray-700 text-center mb-4">
+                            You cannot delete this customer because this customer has bills created.
+                        </p>
+
+                        {/* Transaction History */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <p className="text-sm font-semibold text-blue-900 mb-2">
+                                Transaction History:
+                            </p>
+                            <ul className="text-sm text-blue-800 space-y-1">
+                                {bills.length > 0 && (
+                                    <li className="flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+                                        Bills: {bills.length}
+                                    </li>
+                                )}
+                                {workOrders.length > 0 && (
+                                    <li className="flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+                                        Work Orders: {workOrders.length}
+                                    </li>
+                                )}
+                            </ul>
+                        </div>
+
+                        <p className="text-sm text-gray-500 text-center mb-6">
+                            Customers with transaction history cannot be deleted to maintain data integrity.
+                        </p>
+
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setShowDeleteWarning(false)}
+                            className="w-full py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors"
+                        >
+                            I Understand
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Profile Warning Modal */}
+            <ProfileWarningModal
+                isOpen={showProfileWarning}
+                onClose={() => setShowProfileWarning(false)}
+                onCompleteProfile={handleCompleteProfile}
+            />
+
+            {/* Business Profile Modal */}
+            <BusinessProfileModal
+                isOpen={showBusinessProfile}
+                onClose={() => setShowBusinessProfile(false)}
+                onSuccess={handleBusinessProfileSuccess}
             />
         </div>
     );

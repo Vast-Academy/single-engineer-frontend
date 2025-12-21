@@ -24,6 +24,7 @@ const isNativeApp = () => Capacitor.isNativePlatform();
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [passwordPromptDismissed, setPasswordPromptDismissed] = useState(false);
     const silentAttemptedRef = useRef(false);
 
     // Initialize Google Native SDK on startup
@@ -246,16 +247,60 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Set user password
-    const setUserPassword = async (password, confirmPassword) => {
+    // Verify current password
+    const verifyCurrentPassword = async (currentPassword) => {
         try {
             const { apiPost } = await import('../utils/apiClient');
-            const response = await apiPost(SummaryApi.setPassword.url, {
-                password,
-                confirmPassword
+            const response = await apiPost(SummaryApi.verifyCurrentPassword.url, {
+                currentPassword
             });
 
-            if (response.success) {
+            // Check if response is ok
+            if (!response.ok) {
+                const errorData = await response.json();
+                return { success: false, error: errorData.message || 'Wrong password' };
+            }
+
+            // Parse JSON response
+            const data = await response.json();
+
+            if (data.success) {
+                return { success: true };
+            }
+
+            return { success: false, error: data.message || 'Wrong password' };
+        } catch (error) {
+            console.error('Verify current password error:', error);
+            return { success: false, error: error.message || 'Failed to verify password' };
+        }
+    };
+
+    // Set user password
+    const setUserPassword = async (password, confirmPassword, currentPassword = null) => {
+        try {
+            const { apiPost } = await import('../utils/apiClient');
+            const requestBody = {
+                password,
+                confirmPassword
+            };
+
+            // Include currentPassword if provided (for password changes)
+            if (currentPassword) {
+                requestBody.currentPassword = currentPassword;
+            }
+
+            const response = await apiPost(SummaryApi.setPassword.url, requestBody);
+
+            // Check if response is ok
+            if (!response.ok) {
+                const errorData = await response.json();
+                return { success: false, error: errorData.message || 'Failed to set password' };
+            }
+
+            // Parse JSON response
+            const data = await response.json();
+
+            if (data.success) {
                 // Update local user state
                 setUser(prev => ({
                     ...prev,
@@ -264,8 +309,9 @@ export const AuthProvider = ({ children }) => {
                 return { success: true };
             }
 
-            return { success: false, error: response.message };
+            return { success: false, error: data.message || 'Failed to set password' };
         } catch (error) {
+            console.error('Set password error:', error);
             return { success: false, error: error.message || 'Failed to set password' };
         }
     };
@@ -303,8 +349,120 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    // Refresh user data from backend
+    const refreshUser = async () => {
+        try {
+            const response = await apiClient(SummaryApi.getCurrentUser.url, {
+                method: SummaryApi.getCurrentUser.method
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                setUser(data.user);
+                return { success: true };
+            }
+
+            return { success: false, error: data.message || 'Failed to refresh user data' };
+        } catch (error) {
+            console.error('Refresh user error:', error);
+            return { success: false, error: error.message || 'Failed to refresh user data' };
+        }
+    };
+
+    // Send password reset OTP
+    const sendPasswordResetOTP = async (email) => {
+        try {
+            const response = await fetch(SummaryApi.sendPasswordResetOTP.url, {
+                method: SummaryApi.sendPasswordResetOTP.method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                return { success: true, email: data.email };
+            }
+
+            return { success: false, error: data.message || 'Failed to send OTP' };
+        } catch (error) {
+            console.error('Send OTP error:', error);
+            return { success: false, error: error.message || 'Failed to send OTP' };
+        }
+    };
+
+    // Verify password reset OTP
+    const verifyPasswordResetOTP = async (email, otp) => {
+        try {
+            const response = await fetch(SummaryApi.verifyPasswordResetOTP.url, {
+                method: SummaryApi.verifyPasswordResetOTP.method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, otp })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                return { success: true };
+            }
+
+            return {
+                success: false,
+                error: data.message || 'Invalid OTP',
+                attemptsLeft: data.attemptsLeft
+            };
+        } catch (error) {
+            console.error('Verify OTP error:', error);
+            return { success: false, error: error.message || 'Failed to verify OTP' };
+        }
+    };
+
+    // Reset password with OTP
+    const resetPasswordWithOTP = async (email, otp, password, confirmPassword) => {
+        try {
+            const response = await fetch(SummaryApi.resetPasswordWithOTP.url, {
+                method: SummaryApi.resetPasswordWithOTP.method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, otp, password, confirmPassword })
+            });
+
+            const data = await response.json();
+
+            if (data.success && data.customToken) {
+                // Auto-login: Sign in with custom token
+                const firebaseResult = await signInWithCustomToken(auth, data.customToken);
+                const idToken = await firebaseResult.user.getIdToken();
+                await syncTokenWithBackend(idToken);
+
+                return { success: true };
+            }
+
+            return { success: false, error: data.message || 'Failed to reset password' };
+        } catch (error) {
+            console.error('Reset password error:', error);
+            return { success: false, error: error.message || 'Failed to reset password' };
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, loginWithGoogle, loginWithEmailPassword, setUserPassword, logout }}>
+        <AuthContext.Provider
+            value={{
+                user,
+                loading,
+                passwordPromptDismissed,
+                setPasswordPromptDismissed,
+                loginWithGoogle,
+                loginWithEmailPassword,
+                verifyCurrentPassword,
+                setUserPassword,
+                sendPasswordResetOTP,
+                verifyPasswordResetOTP,
+                resetPasswordWithOTP,
+                refreshUser,
+                logout
+            }}
+        >
             {children}
         </AuthContext.Provider>
     );

@@ -166,14 +166,17 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
         }
     };
 
+    const overlayBottomPadding = 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))';
+
     if (!isOpen) return null;
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-[70px] bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            style={{ paddingBottom: overlayBottomPadding }}
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden modal-shell flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b">
                     <h2 className="text-lg font-semibold text-gray-800">
@@ -188,7 +191,7 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="p-4 overflow-y-auto max-h-[calc(85vh-140px)]">
+                <form onSubmit={handleSubmit} className="p-4 modal-body">
                     {/* Bank Name */}
                     <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -18,9 +18,34 @@ const SummaryApi = {
         url: `${backendDomain}/api/auth/set-password`,
         method: "post"
     },
+    verifyCurrentPassword: {
+        url: `${backendDomain}/api/auth/verify-current-password`,
+        method: "post"
+    },
     emailPasswordLogin: {
         url: `${backendDomain}/api/auth/login`,
         method: "post"
+    },
+    // Forgot Password APIs
+    sendPasswordResetOTP: {
+        url: `${backendDomain}/api/auth/forgot-password/send-otp`,
+        method: "post"
+    },
+    verifyPasswordResetOTP: {
+        url: `${backendDomain}/api/auth/forgot-password/verify-otp`,
+        method: "post"
+    },
+    resetPasswordWithOTP: {
+        url: `${backendDomain}/api/auth/forgot-password/reset`,
+        method: "post"
+    },
+    getBusinessProfile: {
+        url: `${backendDomain}/api/business-profile`,
+        method: "get"
+    },
+    updateBusinessProfile: {
+        url: `${backendDomain}/api/business-profile`,
+        method: "put"
     },
 
     // Health Check

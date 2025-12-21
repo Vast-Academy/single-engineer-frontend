@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ClipboardList } from 'lucide-react';
 import WorkOrderDetailModal from '../components/workorder/WorkOrderDetailModal';
 import PasswordSetupPrompt from '../components/auth/PasswordSetupPrompt';
+import SetPasswordModal from '../components/auth/SetPasswordModal';
 import { ensureWorkOrdersPulled, pullWorkOrdersFromBackend } from '../storage/sync/workOrdersSync';
 import { getWorkOrdersDao } from '../storage/dao/workOrdersDao';
 import { getCustomersDao } from '../storage/dao/customersDao';
@@ -11,7 +12,7 @@ import { getDashboardMetricsDao } from '../storage/dao/dashboardMetricsDao';
 import { pullDashboardMetrics, buildKey } from '../storage/sync/dashboardMetricsSync';
 
 const Home = () => {
-    const { user } = useAuth();
+    const { user, passwordPromptDismissed, setPasswordPromptDismissed } = useAuth();
     const navigate = useNavigate();
     const [metrics, setMetrics] = useState(null);
     const [availableMonths, setAvailableMonths] = useState([]);
@@ -31,8 +32,10 @@ const Home = () => {
     const [showWorkOrderDetail, setShowWorkOrderDetail] = useState(false);
     const [pendingWorksLocal, setPendingWorksLocal] = useState([]);
 
-    // Password setup prompt
+    // Password setup prompt and modal
     const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const lastWorkOrderRefresh = useRef(0);
 
     // Fetch dashboard metrics
     const loadMetricsFromCache = async (filterType, periodValue, monthValue, yearValue) => {
@@ -104,18 +107,25 @@ const Home = () => {
             .then(loadPendingWorksLocal)
             .catch(() => {});
 
-        // Background refresh of work orders without blocking initial paint
+        // Background refresh of work orders without double-firing immediately
         setTimeout(() => {
-            pullWorkOrdersFromBackend().then(() => loadPendingWorksLocal()).catch(() => {});
+            const now = Date.now();
+            if (now - lastWorkOrderRefresh.current < 30000) return;
+            pullWorkOrdersFromBackend()
+                .then(() => {
+                    lastWorkOrderRefresh.current = Date.now();
+                    loadPendingWorksLocal();
+                })
+                .catch(() => {});
         }, 0);
     }, []);
 
     // Check if password is set and show prompt
     useEffect(() => {
-        if (user && !user.isPasswordSet) {
+        if (user && !user.isPasswordSet && !passwordPromptDismissed) {
             setShowPasswordPrompt(true);
         }
-    }, [user]);
+    }, [user, passwordPromptDismissed]);
 
     // Handler for Period dropdown (1st dropdown)
     const handlePeriodChange = (e) => {
@@ -571,7 +581,7 @@ const Home = () => {
                                 )}
                             </svg>
                         </div>
-                        <p className="text-xs text-gray-500">Net Profit</p>
+                        <p className="text-xs text-gray-500">Margin</p>
                     </div>
                     <p className={`text-sm font-bold ${
                         (metrics?.monthMetrics.netProfit || 0) >= 0
@@ -615,7 +625,7 @@ const Home = () => {
             }`}>
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-xs text-white/80">Gross Profit/Loss</p>
+                        <p className="text-xs text-white/80">Income</p>
                         <p className="text-2xl font-bold text-white mt-0.5">{formatCurrency(metrics?.monthMetrics.grossProfit)}</p>
                     </div>
                     <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
@@ -695,11 +705,26 @@ const Home = () => {
             {/* Password Setup Prompt */}
             <PasswordSetupPrompt
                 isOpen={showPasswordPrompt}
-                onClose={() => setShowPasswordPrompt(false)}
+                onClose={() => {
+                    setShowPasswordPrompt(false);
+                    setPasswordPromptDismissed(true);
+                }}
                 onNavigateToSettings={() => {
                     setShowPasswordPrompt(false);
-                    navigate('/settings');
+                    setShowPasswordModal(true);
                 }}
+            />
+
+            {/* Set Password Modal */}
+            <SetPasswordModal
+                isOpen={showPasswordModal}
+                onClose={() => setShowPasswordModal(false)}
+                onSuccess={() => {
+                    setShowPasswordModal(false);
+                    setPasswordPromptDismissed(false);
+                    // Password set successfully - prompt won't show again
+                }}
+                isChangingPassword={false}
             />
         </div>
     );
