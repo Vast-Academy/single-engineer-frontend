@@ -1,29 +1,37 @@
 import runMigrations from './migrations';
-import { isWeb, assertAndroid } from '../utils/platformDetection';
+import { isWeb } from '../utils/platformDetection';
 
 let readyPromise;
 
-/**
- * Initialize storage: open the DB and run pending migrations.
- *
- * CRITICAL: SQLite storage is ONLY available for Android WebView
- * Web browsers are BLOCKED and will NOT initialize SQLite
- */
 export const initStorage = async () => {
-    // BLOCK web browsers from initializing SQLite
     if (isWeb()) {
-        console.warn('dYs® SQLite initialization blocked. This app is Android-only.');
+        console.warn("WORKOPS DEBUG | db | init blocked web |", new Date().toISOString());
         throw new Error('SQLite initialization blocked for web browsers. This app only works in Android WebView.');
     }
 
-    if (!readyPromise) {
-        readyPromise = (async () => {
-            console.log('ƒo" Initializing SQLite for Android WebView...');
-            const db = await runMigrations();
-            console.log('ƒo" SQLite database ready');
-            return db;
-        })();
+    // If already initialized, reuse the same promise
+    if (readyPromise) {
+        console.log("WORKOPS DEBUG | db | init reuse readyPromise |", new Date().toISOString());
+        return readyPromise;
     }
+
+    // First time initialization
+    console.log("WORKOPS DEBUG | db | init start |", new Date().toISOString());
+
+    readyPromise = (async () => {
+        try {
+            console.log("WORKOPS DEBUG | db | migrations start |", new Date().toISOString());
+            const db = await runMigrations();
+            console.log("WORKOPS DEBUG | db | migrations done |", new Date().toISOString());
+            console.log("WORKOPS DEBUG | db | ready |", new Date().toISOString());
+            return db;
+        } catch (err) {
+            console.error("WORKOPS DEBUG | db | init failed |", new Date().toISOString(), err);
+            readyPromise = undefined;
+            throw err;
+        }
+    })();
+
     return readyPromise;
 };
 

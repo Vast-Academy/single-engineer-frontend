@@ -1,5 +1,8 @@
 import authTokenManager from './authTokenManager';
 
+
+let firstApiCallLogged = false;
+
 /**
  * Enhanced fetch that handles authentication for both web and native platforms
  *
@@ -32,7 +35,8 @@ export const apiClient = async (url, options = {}, retryCount = 0) => {
     try {
         const idToken = await authTokenManager.getToken();
         headers['Authorization'] = `Bearer ${idToken}`;
-        console.log(`API call with Bearer token: ${url}`);
+        console.log("WORKOPS DEBUG | api | bearer attached |", new Date().toISOString(), url);
+
     } catch (error) {
         console.error('Failed to get Firebase token:', error);
         throw new Error('Authentication token unavailable. Please login again.');
@@ -45,11 +49,16 @@ export const apiClient = async (url, options = {}, retryCount = 0) => {
     };
 
     try {
+        if (!firstApiCallLogged) {
+    firstApiCallLogged = true;
+    console.log("WORKOPS DEBUG | api | first request |", new Date().toISOString(), url);
+}
+
         const response = await fetch(url, fetchOptions);
 
         // Handle 401 Unauthorized - Token might be expired
         if (response.status === 401 && retryCount < maxRetries) {
-            console.warn(`401 Unauthorized from ${url}. Attempting token refresh...`);
+            console.warn("WORKOPS DEBUG | api | 401 |", new Date().toISOString(), url, "retryCount:", retryCount);
 
             // Force token refresh and retry
             await authTokenManager.forceRefresh();

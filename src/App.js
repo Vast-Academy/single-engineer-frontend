@@ -11,6 +11,7 @@ import Workorders from './pages/Workorders';
 import Customers from './pages/Customers';
 import CustomerDetail from './pages/CustomerDetail';
 import Settings from './pages/Settings';
+import HelpSupport from './pages/HelpSupport';
 import BankAccounts from './pages/BankAccounts';
 import CustomerBills from './pages/CustomerBills';
 import BillDetail from './pages/BillDetail';
@@ -22,6 +23,7 @@ import { isWeb } from './utils/platformDetection';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import logo from './images/logo.png';
 import useViewportCssVars from './hooks/useViewportCssVars';
+import { Preferences } from "@capacitor/preferences";
 // import { useState } from 'react';
 
 /**
@@ -244,6 +246,48 @@ function InitialSyncGate({ children }) {
 }
 
 function App() {
+   useEffect(() => {
+    const checkVersionChange = async () => {
+        try {
+            const info = await CapApp.getInfo();
+            const currentVersionCode = String(info.build || "");
+            const currentVersionName = String(info.version || "");
+
+            const stored = await Preferences.get({ key: "workops_last_version_code" });
+            const lastVersionCode = stored.value;
+
+            console.log(
+                "WORKOPS DEBUG | version check |",
+                new Date().toISOString(),
+                "versionName:", currentVersionName,
+                "versionCode:", currentVersionCode,
+                "lastVersionCode:", lastVersionCode
+            );
+
+            const isFirstRun = !lastVersionCode;
+            const isUpdated = !!lastVersionCode && lastVersionCode !== currentVersionCode;
+
+            if (isFirstRun) {
+                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "first run");
+            } else if (isUpdated) {
+                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "updated");
+            } else {
+                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "same version");
+            }
+
+            await Preferences.set({
+                key: "workops_last_version_code",
+                value: currentVersionCode
+            });
+        } catch (err) {
+            console.error("WORKOPS DEBUG | version check failed |", err);
+        }
+    };
+
+    checkVersionChange();
+}, []);
+
+
     useViewportCssVars();
     // CRITICAL: Block web access completely
     // This app ONLY works in Android WebView (Capacitor)
@@ -350,6 +394,16 @@ function App() {
                             <ProtectedRoute>
                                 <InitialSyncGate>
                                     <Settings />
+                                </InitialSyncGate>
+                            </ProtectedRoute>
+                        }
+                    />
+                    <Route
+                        path="/help-support"
+                        element={
+                            <ProtectedRoute>
+                                <InitialSyncGate>
+                                    <HelpSupport />
                                 </InitialSyncGate>
                             </ProtectedRoute>
                         }

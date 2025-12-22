@@ -316,7 +316,7 @@ const Settings = () => {
                 <SettingItem
                     icon={HelpCircle}
                     label="Help & Support"
-                    onClick={() => {}}
+                    onClick={() => navigate('/help-support')}
                     iconBg="bg-orange-100"
                     iconColor="text-orange-600"
                 />

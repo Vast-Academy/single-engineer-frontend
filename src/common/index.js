@@ -230,6 +230,12 @@ const SummaryApi = {
     getDashboardMetrics: {
         url: `${backendDomain}/api/dashboard/metrics`,
         method: "get"
+    },
+
+    // ==================== HELP & SUPPORT ====================
+    submitSupportTicket: {
+        url: `${backendDomain}/api/support/submit-ticket`,
+        method: "post"
     }
 }
 

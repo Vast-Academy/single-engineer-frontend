@@ -30,6 +30,7 @@ export const AuthProvider = ({ children }) => {
     // Initialize Google Native SDK on startup
     useEffect(() => {
         if (isNativeApp()) {
+            console.log("WORKOPS DEBUG | auth | google sdk init start |", new Date().toISOString());
             GoogleAuth.initialize({
                 clientId: process.env.REACT_APP_GOOGLE_WEB_CLIENT_ID,
                 scopes: ["profile", "email"],
@@ -63,38 +64,67 @@ export const AuthProvider = ({ children }) => {
 
             const credential = GoogleAuthProvider.credential(idToken);
             const firebaseResult = await signInWithCredential(auth, credential);
+
+            console.log("WORKOPS DEBUG | auth | getIdToken start |", new Date().toISOString());
             const freshIdToken = await firebaseResult.user.getIdToken();
-            await syncTokenWithBackend(freshIdToken);
+             console.log("WORKOPS DEBUG | auth | getIdToken done |", new Date().toISOString());
+
+             console.log("WORKOPS DEBUG | auth | backend sync start |", new Date().toISOString());
+            const ok = await syncTokenWithBackend(freshIdToken);
+            console.log("WORKOPS DEBUG | auth | backend sync done |", new Date().toISOString(), "isValid:", ok);
+
             return true;
         } catch (err) {
-            console.log("Silent native sign-in failed:", err?.message || err);
+            console.log("WORKOPS DEBUG | auth | silent native sign-in failed |", err?.message || err);
             return false;
         }
     }, []);
 
     // Listen to user/token state
     useEffect(() => {
-        initStorage().catch(err => console.error("Storage init error:", err));
+        console.log("WORKOPS DEBUG | auth | init start |", new Date().toISOString());
+        console.log("WORKOPS DEBUG | auth | initStorage kick off |", new Date().toISOString());
+        initStorage().catch(err => console.error("WORKOPS DEBUG | auth | initStorage error |", err));
 
+        console.log("WORKOPS DEBUG | auth | onIdTokenChanged listener attach |", new Date().toISOString());
         const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
+            console.log(
+                "WORKOPS DEBUG | auth | onIdTokenChanged callback |",
+                new Date().toISOString(),
+                "user:",
+                !!firebaseUser
+            );
+
             if (!firebaseUser) {
+                console.log("WORKOPS DEBUG | auth | firebaseUser null |", new Date().toISOString());
                 setUser(null);
                 setLoading(false);
+
+                 console.log("WORKOPS DEBUG | auth | silent sign in attempt |", new Date().toISOString());
                 // If native, attempt silent sign-in before giving up
                 await silentNativeSignIn();
                 return;
             }
 
             try {
+                console.log("WORKOPS DEBUG | auth | firebaseUser present |", new Date().toISOString());
+
+                console.log("WORKOPS DEBUG | auth | initStorage await start |", new Date().toISOString());
                 await initStorage();
+                console.log("WORKOPS DEBUG | auth | initStorage await done |", new Date().toISOString());
+
+                console.log("WORKOPS DEBUG | auth | getIdToken start |", new Date().toISOString());
                 const idToken = await firebaseUser.getIdToken(true);
+                console.log("WORKOPS DEBUG | auth | getIdToken done |", new Date().toISOString());
 
                 // Validate session with backend
+                console.log("WORKOPS DEBUG | auth | backend sync start |", new Date().toISOString());
                 const isValid = await syncTokenWithBackend(idToken);
+                console.log("WORKOPS DEBUG | auth | backend sync done |", new Date().toISOString(), "isValid:", isValid);
 
                 // If backend rejects the session, sign out
                 if (!isValid) {
-                    console.log("Session invalid, signing out...");
+                     console.log("WORKOPS DEBUG | auth | session invalid signing out |", new Date().toISOString());
                     await signOut(auth);
                     setUser(null);
                     setLoading(false);
@@ -108,7 +138,10 @@ export const AuthProvider = ({ children }) => {
             }
         });
 
-        return () => unsubscribe();
+         return () => {
+            console.log("WORKOPS DEBUG | auth | listener removed |", new Date().toISOString());
+            unsubscribe();
+        };
     }, [silentNativeSignIn]);
 
     // Send Firebase token to backend => sets cookie session
