@@ -5,7 +5,7 @@ import { getServicesDao } from '../../storage/dao/servicesDao';
 import { useSync } from '../../context/SyncContext';
 import { apiClient } from '../../utils/apiClient';
 
-const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => {
+const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null, prefillData = null }) => {
     const [loading, setLoading] = useState(false);
     const { notifyLocalSave } = useSync();
     const [formData, setFormData] = useState({
@@ -51,13 +51,19 @@ const AddServiceModal = ({ isOpen, onClose, onSuccess, editService = null }) => 
                 serviceName: editService.serviceName,
                 servicePrice: editService.servicePrice
             });
+        } else if (prefillData) {
+            // Pre-fill from search query
+            setFormData({
+                serviceName: prefillData.serviceName || '',
+                servicePrice: prefillData.servicePrice || ''
+            });
         } else {
             setFormData({
                 serviceName: '',
                 servicePrice: ''
             });
         }
-    }, [editService, isOpen]);
+    }, [editService, prefillData, isOpen]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;

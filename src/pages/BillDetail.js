@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Printer, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar, Loader2 } from 'lucide-react';
+import { ArrowLeft, CreditCard, Eye, Download, Share2, Clock, CheckCircle, AlertCircle, User, Phone, Calendar, Loader2 } from 'lucide-react';
 import PayDueModal from '../components/bill/PayDueModal';
 import { pushBills } from '../storage/sync/pushBills';
 import { useSync } from '../context/SyncContext';
 import { useAuth } from '../context/AuthContext';
 import { ensureBillsPulled, pullBillsFromBackend } from '../storage/sync/billsSync';
 import { getBillsDao } from '../storage/dao/billsDao';
-import { downloadBillPdf, shareBillPdf } from '../utils/billPdf';
+import { getCustomersDao } from '../storage/dao/customersDao';
+import { downloadBillPdf, shareBillPdf, viewBillPdf } from '../utils/billPdf';
 import { useLayoutContext } from '../components/Layout';
 
 const BillDetail = () => {
@@ -22,6 +23,7 @@ const BillDetail = () => {
     const [showPayDue, setShowPayDue] = useState(false);
     const [sharing, setSharing] = useState(false);
     const [downloading, setDownloading] = useState(false);
+    const [viewing, setViewing] = useState(false);
     const { notifyLocalSave, dataVersion } = useSync();
     const { user } = useAuth();
     const lastFetchedVersion = useRef(null);
@@ -95,7 +97,19 @@ const BillDetail = () => {
 
                 // If we don't have customer info in state, fetch and set it
                 if (!customer && localBill.customer_id) {
-                    setCustomer({ _id: localBill.customer_id });
+                    const customersDao = await getCustomersDao();
+                    const localCustomer = await customersDao.getById(localBill.customer_id);
+                    if (localCustomer) {
+                        setCustomer({
+                            _id: localCustomer.id,
+                            customerName: localCustomer.customer_name,
+                            phoneNumber: localCustomer.phone_number,
+                            whatsappNumber: localCustomer.whatsapp_number,
+                            address: localCustomer.address
+                        });
+                    } else {
+                        setCustomer({ _id: localBill.customer_id });
+                    }
                 }
                 lastFetchedVersion.current = dataVersion;
             }
@@ -175,153 +189,21 @@ const BillDetail = () => {
         pushBills().catch(() => {});
     };
 
-    // Handle Print
-    const handlePrint = () => {
-        const printContent = printRef.current;
-        const printWindow = window.open('', '_blank');
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Invoice - ${bill.billNumber}</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; color: #333; font-size: 14px; }
-                    .invoice { max-width: 800px; margin: 0 auto; }
-                    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #333; }
-                    .company-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-                    .invoice-title { font-size: 18px; color: #666; }
-                    .info-section { display: flex; justify-content: space-between; margin-bottom: 30px; }
-                    .info-block h4 { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
-                    .info-block p { margin: 4px 0; }
-                    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-                    .items-table th { background: #f5f5f5; padding: 12px; text-align: left; border-bottom: 2px solid #ddd; font-size: 12px; text-transform: uppercase; }
-                    .items-table td { padding: 12px; border-bottom: 1px solid #eee; }
-                    .items-table .amount { text-align: right; }
-                    .items-table .qty { text-align: center; }
-                    .totals { margin-left: auto; width: 250px; }
-                    .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-                    .totals-row.total { border-top: 2px solid #333; border-bottom: none; font-weight: bold; font-size: 16px; margin-top: 10px; padding-top: 15px; }
-                    .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-                    .status-paid { background: #d1fae5; color: #065f46; }
-                    .status-partial { background: #ffedd5; color: #c2410c; }
-                    .status-pending { background: #fee2e2; color: #dc2626; }
-                    .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; }
-                    .serial { color: #666; font-size: 12px; }
-                </style>
-            </head>
-            <body>
-                <div class="invoice">
-                    <div class="header">
-                        ${user?.businessProfile?.isComplete ? `
-                            <div class="company-name">${user.businessProfile.businessName}</div>
-                            <div style="font-size: 12px; color: #666; margin: 5px 0;">
-                                ${user.businessProfile.address}, ${user.businessProfile.city}, ${user.businessProfile.state} - ${user.businessProfile.pincode}
-                            </div>
-                            ${user.businessProfile.phone ? `
-                                <div style="font-size: 12px; color: #666;">
-                                    Phone: ${user.businessProfile.phone}
-                                </div>
-                            ` : ''}
-                        ` : `
-                            <div class="company-name">Your Business Name</div>
-                        `}
-                        
-                    </div>
-
-                    <div class="info-section">
-                        <div class="info-block">
-                            <h4>Bill To</h4>
-                            <p><strong>${customer?.customerName || 'Customer'}</strong></p>
-                            ${customer?.phoneNumber ? `<p>${customer.phoneNumber}</p>` : ''}
-                        </div>
-                        <div class="info-block" style="text-align: right;">
-                            <h4>Invoice Details</h4>
-                            <p><strong>${bill.billNumber}</strong></p>
-                            <p>${formatDate(bill.createdAt)}</p>
-                            <p><span class="status status-${bill.status}">${bill.status.toUpperCase()}</span></p>
-                        </div>
-                    </div>
-
-                    <table class="items-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Description</th>
-                                <th class="qty">Qty</th>
-                                <th class="amount">Rate</th>
-                                <th class="amount">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${items.map((item, index) => `
-                                <tr>
-                                    <td>${index + 1}</td>
-                                    <td>
-                                        ${item.itemName}
-                                        ${item.serialNumber ? `<div class="serial">S/N: ${item.serialNumber}</div>` : ''}
-                                    </td>
-                                    <td class="qty">${item.qty}</td>
-                                    <td class="amount">₹${item.price}</td>
-                                    <td class="amount">₹${item.amount}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-
-                    <div class="totals">
-                        <div class="totals-row">
-                            <span>Subtotal</span>
-                            <span>₹${bill.subtotal}</span>
-                        </div>
-                        ${bill.discount > 0 ? `
-                            <div class="totals-row">
-                                <span>Discount</span>
-                                <span>-₹${bill.discount}</span>
-                            </div>
-                        ` : ''}
-                        <div class="totals-row total">
-                            <span>Total</span>
-                            <span>₹${bill.totalAmount}</span>
-                        </div>
-                        <div class="totals-row">
-                            <span>Paid</span>
-                            <span style="color: green;">₹${bill.receivedPayment}</span>
-                        </div>
-                        ${bill.dueAmount > 0 ? `
-                            <div class="totals-row">
-                                <span>Balance Due</span>
-                                <span style="color: red;">₹${bill.dueAmount}</span>
-                            </div>
-                        ` : ''}
-                    </div>
-
-                    ${user?.businessProfile?.isComplete ? `
-                        <div style="margin-top: 40px;">
-                            <p style="font-size: 12px; color: #333; margin-bottom: 10px;">
-                                Authorized signature for ${user.businessProfile.businessName}
-                            </p>
-                            <div style="border: 1px solid #333; padding: 8px 20px; display: inline-block; min-width: 200px; text-align: center;">
-                                ${user.businessProfile.ownerName}
-                            </div>
-                        </div>
-                    ` : ''}
-
-                    <div class="footer">
-                        <p>Thank you for your business!</p>
-                    </div>
-                </div>
-                <script>
-                    window.onload = function() {
-                        window.print();
-                        window.onafterprint = function() { window.close(); }
-                    }
-                </script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
+    // Handle View
+    const handleView = async () => {
+        try {
+            setViewing(true);
+            await viewBillPdf({
+                bill,
+                customer,
+                businessProfile: user?.businessProfile
+            });
+        } catch (error) {
+            console.error('View PDF error:', error);
+            alert('Unable to open the PDF viewer right now.');
+        } finally {
+            setViewing(false);
+        }
     };
 
     // Handle Download - platform-aware
@@ -606,13 +488,20 @@ const BillDetail = () => {
                         </div>
                     )}
 
-                    {/* Print */}
+                    {/* View Bill */}
                     <button
-                        onClick={handlePrint}
-                        className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                        onClick={handleView}
+                        disabled={viewing}
+                        className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Printer className="w-6 h-6 text-gray-600" />
-                        <span className="text-xs font-medium text-gray-700">Print</span>
+                        {viewing ? (
+                            <Loader2 className="w-6 h-6 text-gray-600 animate-spin" />
+                        ) : (
+                            <Eye className="w-6 h-6 text-gray-600" />
+                        )}
+                        <span className="text-xs font-medium text-gray-700">
+                            {viewing ? 'Opening...' : 'View Bill'}
+                        </span>
                     </button>
 
                     {/* Download */}
@@ -661,8 +550,6 @@ const BillDetail = () => {
 };
 
 export default BillDetail;
-
-
 
 
 

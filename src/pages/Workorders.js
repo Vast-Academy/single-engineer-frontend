@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Plus, ClipboardList } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { FixedSizeList } from 'react-window';
 import SummaryApi from '../common';
 import WorkOrderCard from '../components/workorder/WorkOrderCard';
@@ -16,6 +17,7 @@ const ITEM_HEIGHT = 170;
 const ITEM_SPACING = 12;
 
 const Workorders = () => {
+    const location = useLocation();
     const { bottomStackHeight } = useLayoutContext();
     const [activeTab, setActiveTab] = useState('pending'); // pending, completed
     const [pendingWorkOrders, setPendingWorkOrders] = useState([]);
@@ -264,6 +266,30 @@ const Workorders = () => {
     const pendingCount = pendingWorkOrders.length;
     const completedCount = completedWorkOrders.length;
     const fabBottomOffset = `calc(${bottomStackHeight || 0}px + var(--app-safe-area-bottom, 0px) + 12px)`;
+    const refreshKey = location.state?.refreshKey;
+
+    useEffect(() => {
+        if (!refreshKey) return;
+        const refresh = async () => {
+            setLoading(true);
+            try {
+                await ensureWorkOrdersPulled();
+                await fetchPendingLocal(1, true);
+                await fetchCompletedLocal(1, true);
+                pullWorkOrdersFromBackend().then(async () => {
+                    await fetchPendingLocal(1, true, { showSkeleton: false });
+                    await fetchCompletedLocal(1, true, { showSkeleton: false });
+                }).catch(() => {});
+            } catch (err) {
+                console.error('Workorders refresh error:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        refresh();
+        pendingListRef.current?.scrollToItem(0);
+        completedListRef.current?.scrollToItem(0);
+    }, [refreshKey]);
 
     return (
         <div

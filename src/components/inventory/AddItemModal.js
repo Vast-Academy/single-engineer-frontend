@@ -268,11 +268,7 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                 </div>
 
                 {/* Form */}
-                <form
-                    onSubmit={handleSubmit}
-                    className="flex flex-col flex-1"
-                >
-                    <div className="p-4 modal-body">
+                <form id="add-item-form" onSubmit={handleSubmit} className="p-4 modal-body">
                     {/* Item Type */}
                     {!editItem && (
                         <div className="mb-4">
@@ -407,26 +403,26 @@ const AddItemModal = ({ isOpen, onClose, onSuccess, editItem = null, existingIte
                             />
                         </div>
                     </div>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="flex gap-3 p-4 pb-8 border-t bg-white modal-footer-safe">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading || !!nameError}
-                            className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {loading ? 'Saving...' : (editItem ? 'Update Item' : 'Add Item')}
-                        </button>
-                    </div>
                 </form>
+
+                {/* Footer */}
+                <div className="flex gap-3 p-4 border-t bg-white">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex-1 py-3 border border-gray-300 rounded-xl text-gray-700 font-medium hover:bg-gray-50"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        form="add-item-form"
+                        disabled={loading || !!nameError}
+                        className="flex-1 py-3 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {loading ? 'Saving...' : (editItem ? 'Update Item' : 'Add Item')}
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -246,6 +246,43 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
             // Persist server bill to local SQLite so detail screens have items/history immediately
             const dao = await getBillsDao();
             await dao.upsertMany([serverBill]);
+
+            // Update local inventory immediately (reduce stock for sold items)
+            try {
+                const { getItemsDao } = await import('../../storage/dao/itemsDao');
+                const { getSerialNumbersDao } = await import('../../storage/dao/serialNumbersDao');
+                const itemsDao = await getItemsDao();
+                const serialDao = await getSerialNumbersDao();
+                const now = new Date().toISOString();
+
+                for (const item of selectedItems) {
+                    if (item.itemType === 'generic') {
+                        // Reduce stock quantity for generic items
+                        await itemsDao.update(
+                            'stock_qty = stock_qty - ?, updated_at = ?',
+                            [item.qty || 1, now, item.itemId],
+                            'id = ?'
+                        );
+                    } else if (item.itemType === 'serialized' && item.serialNumber) {
+                        // Mark serial number as sold
+                        await serialDao.markPendingUpdateBySerial(item.serialNumber, {
+                            status: 'sold',
+                            customer_name: customer.customerName,
+                            bill_number: serverBill.billNumber || serverBill.bill_number
+                        });
+                        // Reduce stock quantity for serialized items
+                        await itemsDao.update(
+                            'stock_qty = stock_qty - 1, updated_at = ?',
+                            [now, item.itemId],
+                            'id = ?'
+                        );
+                    }
+                }
+            } catch (invError) {
+                console.error('Local inventory update error:', invError);
+                // Non-critical, continue
+            }
+
             bumpDataVersion();
 
             // Map to UI shape for success screen
@@ -357,6 +394,7 @@ const CreateBillModal = ({ isOpen, onClose, customer, workOrderId, onSuccess }) 
                             onAddItem={handleAddItem}
                             onRemoveItem={handleRemoveItem}
                             onContinue={handleNext}
+                            onRefreshItems={fetchData}
                         />
                     )}
 

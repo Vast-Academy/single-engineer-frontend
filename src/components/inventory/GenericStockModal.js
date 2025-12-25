@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Plus, Minus } from 'lucide-react';
 import { getItemsDao } from '../../storage/dao/itemsDao';
 import { getStockHistoryDao } from '../../storage/dao/stockHistoryDao';
@@ -23,6 +23,33 @@ const GenericStockModal = ({ isOpen, onClose, onSuccess, item }) => {
             setError('');
         }
     }, [isOpen]);
+
+    // Handle ESC key
+    const handleEscKey = useCallback((e) => {
+        if (e.key === 'Escape') {
+            onClose();
+        }
+    }, [onClose]);
+
+    // Handle browser back button
+    useEffect(() => {
+        if (isOpen) {
+            window.history.pushState({ modal: true }, '');
+            const handlePopState = () => {
+                onClose();
+            };
+            window.addEventListener('popstate', handlePopState);
+            return () => window.removeEventListener('popstate', handlePopState);
+        }
+    }, [isOpen, onClose]);
+
+    // Add ESC key listener
+    useEffect(() => {
+        if (isOpen) {
+            document.addEventListener('keydown', handleEscKey);
+            return () => document.removeEventListener('keydown', handleEscKey);
+        }
+    }, [isOpen, handleEscKey]);
 
     // Cleanup intervals on unmount
     useEffect(() => {
@@ -169,23 +196,24 @@ const GenericStockModal = ({ isOpen, onClose, onSuccess, item }) => {
         }
     };
 
+    const handleOverlayClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+        }
+    };
+
     if (!isOpen || !item) return null;
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
             style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), var(--app-safe-area-bottom, 0px))' }}
+            onClick={handleOverlayClick}
         >
-            {/* Overlay */}
-            <div
-                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-                onClick={onClose}
-            />
-
             {/* Modal */}
             <div className="relative bg-white w-full sm:max-w-sm sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden animate-slide-up">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between p-6 border-b border-gray-200 safe-area-top">
                     <div>
                         <h2 className="text-lg font-bold text-gray-800">Add Stock</h2>
                         <p className="text-sm text-gray-500 mt-0.5">{item.itemName}</p>

@@ -3,6 +3,10 @@ import { isWeb } from '../utils/platformDetection';
 
 let readyPromise;
 
+export const resetStorageInitCache = () => {
+    readyPromise = undefined;
+};
+
 export const initStorage = async () => {
     if (isWeb()) {
         console.warn("WORKOPS DEBUG | db | init blocked web |", new Date().toISOString());
@@ -35,6 +39,35 @@ export const initStorage = async () => {
     return readyPromise;
 };
 
+export const clearAllLocalData = async () => {
+    try {
+        const db = await initStorage();
+
+        // Delete all data from all tables
+        await Promise.all([
+            db.execute('DELETE FROM customers'),
+            db.execute('DELETE FROM items'),
+            db.execute('DELETE FROM serial_numbers'),
+            db.execute('DELETE FROM stock_history'),
+            db.execute('DELETE FROM services'),
+            db.execute('DELETE FROM work_orders'),
+            db.execute('DELETE FROM bills'),
+            db.execute('DELETE FROM bill_items'),
+            db.execute('DELETE FROM payment_history'),
+            db.execute('DELETE FROM bank_accounts'),
+            db.execute('DELETE FROM metadata')
+        ]);
+
+        console.log('All local SQLite data cleared successfully');
+        return true;
+    } catch (error) {
+        console.error('Error clearing local data:', error);
+        return false;
+    }
+};
+
 export default {
-    initStorage
+    initStorage,
+    resetStorageInitCache,
+    clearAllLocalData
 };

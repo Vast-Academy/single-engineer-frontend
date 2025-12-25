@@ -13,7 +13,8 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
         state: '',
         city: '',
         pincode: '',
-        phone: ''
+        phone: '',
+        hidePhoneOnBills: false
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -21,15 +22,16 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
 
     // Pre-fill form if business profile exists
     useEffect(() => {
-        if (isOpen && user?.businessProfile) {
+        if (isOpen) {
             setFormData({
-                businessName: user.businessProfile.businessName || '',
-                ownerName: user.businessProfile.ownerName || '',
-                address: user.businessProfile.address || '',
-                state: user.businessProfile.state || '',
-                city: user.businessProfile.city || '',
-                pincode: user.businessProfile.pincode || '',
-                phone: user.businessProfile.phone || ''
+                businessName: user?.businessProfile?.businessName || '',
+                ownerName: user?.businessProfile?.ownerName || user?.displayName || '',
+                address: user?.businessProfile?.address || '',
+                state: user?.businessProfile?.state || '',
+                city: user?.businessProfile?.city || '',
+                pincode: user?.businessProfile?.pincode || '',
+                phone: user?.businessProfile?.phone || '',
+                hidePhoneOnBills: user?.businessProfile?.hidePhoneOnBills || false
             });
         }
     }, [isOpen, user]);
@@ -68,7 +70,8 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
                 state: '',
                 city: '',
                 pincode: '',
-                phone: ''
+                phone: '',
+                hidePhoneOnBills: false
             });
             setError('');
             setSuccess(false);
@@ -113,7 +116,8 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
                     state: formData.state.trim(),
                     city: formData.city.trim(),
                     pincode: formData.pincode.trim(),
-                    phone: formData.phone.trim()
+                    phone: formData.phone.trim(),
+                    hidePhoneOnBills: formData.hidePhoneOnBills
                 })
             });
 
@@ -186,6 +190,13 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="modal-body">
                     <div className="p-4 space-y-4">
+                        {/* Info Note */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                            <p className="text-xs text-blue-800 text-center">
+                                ℹ️ This information will be shown on your bills
+                            </p>
+                        </div>
+
                         {/* Business Name */}
                         <div>
                             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -292,9 +303,24 @@ const BusinessProfileModal = ({ isOpen, onClose, onSuccess }) => {
 
                         {/* Phone Number */}
                         <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                Phone Number
-                            </label>
+                            <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-xs font-semibold text-slate-700">
+                                    Phone Number
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="hidePhone"
+                                        checked={formData.hidePhoneOnBills}
+                                        onChange={(e) => setFormData({ ...formData, hidePhoneOnBills: e.target.checked })}
+                                        disabled={loading}
+                                        className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="hidePhone" className="text-xs text-slate-600 cursor-pointer">
+                                        Hide on bills
+                                    </label>
+                                </div>
+                            </div>
                             <div className="relative">
                                 <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
                                 <input

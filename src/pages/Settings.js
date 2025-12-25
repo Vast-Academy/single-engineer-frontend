@@ -1,23 +1,58 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, User, Bell, HelpCircle, LogOut, ChevronRight, ArrowLeft, Trash2, Lock, Key } from 'lucide-react';
 import DeleteConfirmModal from '../components/inventory/DeleteConfirmModal';
 import SetPasswordModal from '../components/auth/SetPasswordModal';
 import BusinessProfileModal from '../components/auth/BusinessProfileModal';
+import DeleteAccountModal from '../components/settings/DeleteAccountModal';
 import { isNative } from '../utils/platform';
 import SummaryApi from '../common';
 import { apiClient } from '../utils/apiClient';
+import { App } from '@capacitor/app';
 
 const Settings = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [showClearDataConfirm, setShowClearDataConfirm] = useState(false);
     const [isClearingData, setIsClearingData] = useState(false);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [showBusinessProfileModal, setShowBusinessProfileModal] = useState(false);
+    const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+    const [appVersion, setAppVersion] = useState(null);
+    const refreshKey = location.state?.refreshKey;
+
+    // Fetch app version from build.gradle
+    useEffect(() => {
+        const getAppVersion = async () => {
+            try {
+                if (isNative()) {
+                    const info = await App.getInfo();
+                    setAppVersion({
+                        version: info.version, // versionName from build.gradle
+                        build: info.build      // versionCode from build.gradle
+                    });
+                } else {
+                    // For web, use package.json version
+                    setAppVersion({
+                        version: '1.2.6',
+                        build: 'web'
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to get app version:', error);
+            }
+        };
+        getAppVersion();
+    }, []);
+
+    useEffect(() => {
+        if (!refreshKey) return;
+        window.scrollTo(0, 0);
+    }, [refreshKey]);
 
     // Show logout confirmation modal
     const handleLogout = () => {
@@ -292,7 +327,7 @@ const Settings = () => {
                     icon={Trash2}
                     label="Delete Account"
                     subtitle="Permanently delete your account and data"
-                    onClick={() => {}}
+                    onClick={() => setShowDeleteAccountModal(true)}
                     iconBg="bg-red-100"
                     iconColor="text-red-600"
                 />
@@ -362,10 +397,14 @@ const Settings = () => {
             </button>
 
             {/* App Info */}
-            {/* <div className="mt-8 text-center space-y-1">
-                <p className="text-gray-400 text-xs">Version 1.0.0</p>
-                <p className="text-gray-400 text-xs">Made with care for engineers</p>
-            </div> */}
+            {appVersion && (
+                <div className="mt-8 text-center space-y-1">
+                    <p className="text-gray-400 text-xs">
+                        Version {appVersion.version} ({appVersion.build})
+                    </p>
+                    <p className="text-gray-400 text-xs">Made with care for engineers</p>
+                </div>
+            )}
 
             {/* Logout Confirmation Modal */}
             <DeleteConfirmModal
@@ -408,6 +447,12 @@ const Settings = () => {
                 onSuccess={() => {
                     // Business profile updated successfully
                 }}
+            />
+
+            {/* Delete Account Modal */}
+            <DeleteAccountModal
+                isOpen={showDeleteAccountModal}
+                onClose={() => setShowDeleteAccountModal(false)}
             />
             </div>
         </div>

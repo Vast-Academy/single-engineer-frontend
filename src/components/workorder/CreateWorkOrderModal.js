@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { X, Search, User, Clock, FileText, ChevronRight, UserPlus } from 'lucide-react';
 import SummaryApi from '../../common';
 import { getWorkOrdersDao } from '../../storage/dao/workOrdersDao';
-import { pushWorkOrders } from '../../storage/sync/pushWorkOrders';
 import { useSync } from '../../context/SyncContext';
 import { apiClient } from '../../utils/apiClient';
 import { Capacitor } from '@capacitor/core';
@@ -214,7 +213,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                         .find(Boolean) || '';
                     return { name: name || '', phone };
                 })
-                .filter(c => c.name || c.phone)
+                .filter(c => c.name && c.phone)
                 .sort((a, b) => {
                     // Sort alphabetically by name (case-insensitive)
                     const nameA = (a.name || a.phone || '').toLowerCase();
@@ -371,46 +370,44 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
             return;
         }
 
+        if (!navigator.onLine) {
+            alert('Go online to create a work order.');
+            return;
+        }
+
         setLoading(true);
         try {
-            const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `wo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-            const now = new Date().toISOString();
-            const local = {
-                id: clientId,
-                client_id: clientId,
-                customer_id: selectedCustomer._id || selectedCustomer.id,
-                work_order_number: '',
+            const payload = {
+                customerId: selectedCustomer._id || selectedCustomer.id,
                 note: note.trim(),
-                schedule_date: scheduleDate,
-                has_scheduled_time: hasScheduledTime,
-                schedule_time: hasScheduledTime ? formatTimeForDisplay(scheduleTime) : '',
-                status: 'pending',
-                completed_at: null,
-                notification_sent: 0,
-                bill_id: null,
-                created_by: null,
-                deleted: 0,
-                updated_at: now,
-                created_at: now,
-                pending_sync: 1,
-                sync_op: 'create',
-                sync_error: null
+                scheduleDate,
+                hasScheduledTime,
+                scheduleTime: hasScheduledTime ? scheduleTime : '',
+                status: 'pending'
             };
+            const response = await apiClient(SummaryApi.createWorkOrder.url, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!data.success || !data.workOrder?._id) {
+                throw new Error(data.message || 'Failed to create work order');
+            }
 
             const dao = await getWorkOrdersDao();
-            await dao.insertLocal(local);
+            await dao.upsertMany([data.workOrder]);
 
             const mappedForUI = {
-                _id: local.id,
-                workOrderNumber: local.work_order_number,
-                note: local.note,
-                scheduleDate: local.schedule_date,
-                hasScheduledTime: local.has_scheduled_time,
-                scheduleTime: local.schedule_time,
-                status: local.status,
-                completedAt: local.completed_at,
-                billId: local.bill_id,
-                pendingSync: true,
+                _id: data.workOrder._id,
+                workOrderNumber: data.workOrder.workOrderNumber || data.workOrder.work_order_number || '',
+                note: data.workOrder.note,
+                scheduleDate: data.workOrder.scheduleDate || data.workOrder.schedule_date,
+                hasScheduledTime: data.workOrder.hasScheduledTime || data.workOrder.has_scheduled_time,
+                scheduleTime: data.workOrder.scheduleTime || data.workOrder.schedule_time,
+                status: data.workOrder.status || 'pending',
+                completedAt: data.workOrder.completedAt || data.workOrder.completed_at,
+                billId: data.workOrder.billId || data.workOrder.bill_id,
+                pendingSync: false,
                 syncError: null,
                 customer: selectedCustomer
             };
@@ -419,7 +416,7 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
                 onSuccess(mappedForUI);
             }
 
-            setToastMessage(`Work Order created locally. Syncing...`);
+            setToastMessage('Work Order created.');
             setShowToast(true);
             notifyLocalSave();
             bumpDataVersion();
@@ -427,11 +424,9 @@ const CreateWorkOrderModal = ({ isOpen, onClose, preSelectedCustomer, onSuccess,
             if (redirectAfterCreate) {
                 navigate('/workorders');
             }
-            // Attempt push in background
-            pushWorkOrders().catch(() => {});
         } catch (error) {
             console.error('Create work order (local) error:', error);
-            alert('Failed to create work order');
+            alert(error.message || 'Failed to create work order');
         } finally {
             setLoading(false);
         }

@@ -172,13 +172,13 @@ const BankAccountModal = ({ isOpen, onClose, account, onSuccess }) => {
 
     return (
         <div
-            className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
             style={{ paddingBottom: overlayBottomPadding }}
             onClick={handleOverlayClick}
         >
             <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden modal-shell flex flex-col">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b">
+                <div className="flex items-center justify-between p-4 border-b safe-area-top">
                     <h2 className="text-lg font-semibold text-gray-800">
                         {isEditMode ? 'Edit Bank Account' : 'Add Bank Account'}
                     </h2>

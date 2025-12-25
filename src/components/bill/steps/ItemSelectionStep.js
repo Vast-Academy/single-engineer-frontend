@@ -1,5 +1,9 @@
-import { useState } from 'react';
-import { Search, ChevronDown, ChevronUp, Plus, Minus, X, Phone, Trash2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Search, ChevronDown, ChevronUp, Plus, Minus, X, Phone, Trash2, PackagePlus, Package, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import AddStockModal from '../../inventory/AddStockModal';
+import GenericStockModal from '../../inventory/GenericStockModal';
+import AddServiceModal from '../../inventory/AddServiceModal';
 
 const ItemSelectionStep = ({
     customer,
@@ -10,14 +14,21 @@ const ItemSelectionStep = ({
     onAddItem,
     onRemoveItem,
     onContinue,
-    hideCustomerInfo = false
+    hideCustomerInfo = false,
+    onRefreshItems
 }) => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('products');
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedItems, setExpandedItems] = useState({});
     const [selectedSerials, setSelectedSerials] = useState({});
     const [genericQtyInputs, setGenericQtyInputs] = useState({});
     const [serviceQtyInputs, setServiceQtyInputs] = useState({});
+    const [showAddStockModal, setShowAddStockModal] = useState(false);
+    const [showGenericStockModal, setShowGenericStockModal] = useState(false);
+    const [selectedItemForStock, setSelectedItemForStock] = useState(null);
+    const [showAddServiceModal, setShowAddServiceModal] = useState(false);
+    const [prefillServiceData, setPrefillServiceData] = useState(null);
 
     // Separate serialized and generic items
     const serializedItems = items.filter(item => item.itemType === 'serialized');
@@ -34,7 +45,25 @@ const ItemSelectionStep = ({
 
     const filteredSerializedItems = filterBySearch(serializedItems, 'itemName');
     const filteredGenericItems = filterBySearch(genericItems, 'itemName');
-    const filteredServices = filterBySearch(services, 'serviceName');
+
+    // Enhanced filter for services - search by name OR price
+    const filteredServices = useMemo(() => {
+        if (!searchQuery.trim()) return services;
+        const query = searchQuery.toLowerCase().trim();
+
+        // Check if query is a number (price search)
+        const isNumeric = /^\d+(\.\d+)?$/.test(query);
+
+        return services.filter(service => {
+            // Search by name
+            const nameMatch = service.serviceName?.toLowerCase().includes(query);
+
+            // Search by price (if query is numeric)
+            const priceMatch = isNumeric && service.servicePrice?.toString().includes(query);
+
+            return nameMatch || priceMatch;
+        });
+    }, [services, searchQuery]);
 
     // Toggle item expansion
     const toggleExpand = (itemId) => {
@@ -89,7 +118,7 @@ const ItemSelectionStep = ({
             price: item.salePrice,
             amount: item.salePrice
         });
-        setGenericQtyInputs(prev => ({ ...prev, [item._id]: '0' }));
+        setGenericQtyInputs(prev => ({ ...prev, [item._id]: '1' }));
     };
 
     // Update generic item qty
@@ -169,7 +198,7 @@ const ItemSelectionStep = ({
             price: service.servicePrice,
             amount: service.servicePrice
         });
-        setServiceQtyInputs(prev => ({ ...prev, [service._id]: '0' }));
+        setServiceQtyInputs(prev => ({ ...prev, [service._id]: '1' }));
     };
 
     // Update service qty
@@ -251,6 +280,86 @@ const ItemSelectionStep = ({
         return item.stockQty - addedQty;
     };
 
+    // Handle add stock button click
+    const handleAddStockClick = (item, e) => {
+        e.stopPropagation(); // Prevent item expansion for serialized
+        setSelectedItemForStock(item);
+        if (item.itemType === 'generic') {
+            setShowGenericStockModal(true);
+        } else {
+            setShowAddStockModal(true);
+        }
+    };
+
+    // Handle stock add success - refresh items list
+    const handleStockAddSuccess = (updatedItem) => {
+        setShowAddStockModal(false);
+        setShowGenericStockModal(false);
+        setSelectedItemForStock(null);
+        // Trigger parent to refetch items from SQLite with updated stock
+        if (onRefreshItems) {
+            onRefreshItems();
+        }
+    };
+
+    // Detect what user searched for
+    const getSearchType = () => {
+        const query = searchQuery.trim();
+        if (!query) return null;
+
+        const isNumeric = /^\d+(\.\d+)?$/.test(query);
+        return {
+            isNumeric,
+            value: query
+        };
+    };
+
+    // Handle Add New Service button click
+    const handleAddNewService = () => {
+        const searchType = getSearchType();
+
+        if (searchType) {
+            if (searchType.isNumeric) {
+                // User searched by price
+                setPrefillServiceData({
+                    serviceName: '',
+                    servicePrice: searchType.value
+                });
+            } else {
+                // User searched by name
+                setPrefillServiceData({
+                    serviceName: searchType.value,
+                    servicePrice: ''
+                });
+            }
+        } else {
+            setPrefillServiceData({
+                serviceName: '',
+                servicePrice: ''
+            });
+        }
+
+        setShowAddServiceModal(true);
+    };
+
+    // Handle service add success
+    const handleServiceAddSuccess = (newService) => {
+        // 1. Add to cart immediately
+        handleAddService(newService);
+
+        // 2. Reset search
+        setSearchQuery('');
+
+        // 3. Close modal
+        setShowAddServiceModal(false);
+        setPrefillServiceData(null);
+
+        // 4. Parent will refresh services list automatically
+        if (onRefreshItems) {
+            onRefreshItems();
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-full">
@@ -329,31 +438,39 @@ const ItemSelectionStep = ({
                                 <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">Serialized Items</h4>
                                 <div className="space-y-2">
                                     {filteredSerializedItems.map(item => {
-                                        const availableSerials = getAvailableSerials(item);
+                                                        const availableSerials = getAvailableSerials(item);
                                         const isExpanded = expandedItems[item._id];
                                         const selectedCount = (selectedSerials[item._id] || []).length;
-
-                                        if (availableSerials.length === 0) return null;
 
                                         return (
                                             <div key={item._id} className="bg-white border rounded-xl overflow-hidden">
                                                 {/* Item Header */}
-                                                <button
-                                                    onClick={() => toggleExpand(item._id)}
-                                                    className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
-                                                >
-                                                    <div className="flex-1 text-left">
-                                                        <p className="font-medium text-gray-800">{item.itemName}</p>
-                                                        <p className="text-sm text-gray-500">
-                                                            ₹{item.salePrice} · {availableSerials.length} available
-                                                        </p>
-                                                    </div>
-                                                    {isExpanded ? (
-                                                        <ChevronUp className="w-5 h-5 text-gray-400" />
-                                                    ) : (
-                                                        <ChevronDown className="w-5 h-5 text-gray-400" />
-                                                    )}
-                                                </button>
+                                                <div className="flex items-center justify-between p-3">
+                                                    <button
+                                                        onClick={() => toggleExpand(item._id)}
+                                                        className="flex-1 flex items-center justify-between hover:bg-gray-50 -m-3 p-3 rounded-xl"
+                                                    >
+                                                        <div className="flex-1 text-left">
+                                                            <p className="font-medium text-gray-800">{item.itemName}</p>
+                                                            <p className="text-sm text-gray-500">
+                                                                ₹{item.salePrice} · {availableSerials.length} available
+                                                            </p>
+                                                        </div>
+                                                        {isExpanded ? (
+                                                            <ChevronUp className="w-5 h-5 text-gray-400" />
+                                                        ) : (
+                                                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                                                        )}
+                                                    </button>
+                                                    {/* Add Stock Button */}
+                                                    <button
+                                                        onClick={(e) => handleAddStockClick(item, e)}
+                                                        className="ml-2 p-2 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                                                        title="Add Stock"
+                                                    >
+                                                        <PackagePlus className="w-5 h-5 text-blue-600" />
+                                                    </button>
+                                                </div>
 
                                                 {/* Expanded Serial Numbers */}
                                                 {isExpanded && (
@@ -401,8 +518,6 @@ const ItemSelectionStep = ({
                                         const cartItem = getItemInCart(item._id, 'generic');
                                         const isInCart = !!cartItem;
 
-                                        if (availableStock <= 0 && !isInCart) return null;
-
                                         return (
                                             <div key={item._id} className="bg-white border rounded-xl p-3">
                                                 <div className="flex items-center justify-between">
@@ -412,7 +527,15 @@ const ItemSelectionStep = ({
                                                             ₹{item.salePrice} · {availableStock + (cartItem?.qty || 0)} in stock
                                                         </p>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1">
+                                                        {/* Add Stock Button */}
+                                                        <button
+                                                            onClick={(e) => handleAddStockClick(item, e)}
+                                                            className="p-2 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
+                                                            title="Add Stock"
+                                                        >
+                                                            <PackagePlus className="w-5 h-5 text-green-600" />
+                                                        </button>
                                                         {!isInCart ? (
                                                             /* Show only Add button */
                                                             <button
@@ -461,8 +584,31 @@ const ItemSelectionStep = ({
                         )}
 
                         {filteredSerializedItems.length === 0 && filteredGenericItems.length === 0 && (
-                            <div className="text-center py-8 text-gray-500">
-                                No products available
+                            <div className="text-center py-12 px-6">
+                                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Package className="w-10 h-10 text-gray-400" />
+                                </div>
+                                {items.length === 0 ? (
+                                    <>
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                                            No Items in Inventory
+                                        </h3>
+                                        <p className="text-sm text-gray-600 mb-6 max-w-sm mx-auto">
+                                            To create a bill, you need to add items to your inventory first. Add products with stock to get started.
+                                        </p>
+                                        <button
+                                            onClick={() => navigate('/inventory')}
+                                            className="inline-flex items-center gap-2 px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-xl transition-colors shadow-lg"
+                                        >
+                                            Go to Inventory
+                                            <ArrowRight className="w-5 h-5" />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-gray-500">No products match your search</p>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
@@ -523,8 +669,37 @@ const ItemSelectionStep = ({
                                 );
                             })
                         ) : (
-                            <div className="text-center py-8 text-gray-500">
-                                No services available
+                            <div className="text-center py-12 px-6">
+                                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Package className="w-10 h-10 text-gray-400" />
+                                </div>
+                                {services.length === 0 ? (
+                                    <>
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                                            No Services in Inventory
+                                        </h3>
+                                        <p className="text-sm text-gray-600 mb-6 max-w-sm mx-auto">
+                                            To add services to bills, you need to create services in your inventory first.
+                                        </p>
+                                        <button
+                                            onClick={() => navigate('/inventory')}
+                                            className="inline-flex items-center gap-2 px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-xl transition-colors shadow-lg"
+                                        >
+                                            Go to Inventory
+                                            <ArrowRight className="w-5 h-5" />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-gray-500 mb-4">No services found</p>
+                                        <button
+                                            onClick={handleAddNewService}
+                                            className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-xl transition-colors shadow-lg"
+                                        >
+                                            + Add New Service
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
@@ -575,6 +750,45 @@ const ItemSelectionStep = ({
                     Continue
                 </button>
             </div>
+
+            {/* Add Stock Modal */}
+            {selectedItemForStock && selectedItemForStock.itemType !== 'generic' && (
+                <AddStockModal
+                    isOpen={showAddStockModal}
+                    onClose={() => {
+                        setShowAddStockModal(false);
+                        setSelectedItemForStock(null);
+                    }}
+                    onSuccess={handleStockAddSuccess}
+                    item={selectedItemForStock}
+                />
+            )}
+
+            {/* Add Generic Stock Modal */}
+            {selectedItemForStock && selectedItemForStock.itemType === 'generic' && (
+                <GenericStockModal
+                    isOpen={showGenericStockModal}
+                    onClose={() => {
+                        setShowGenericStockModal(false);
+                        setSelectedItemForStock(null);
+                    }}
+                    onSuccess={handleStockAddSuccess}
+                    item={selectedItemForStock}
+                />
+            )}
+
+            {/* Add Service Modal */}
+            {showAddServiceModal && (
+                <AddServiceModal
+                    isOpen={showAddServiceModal}
+                    onClose={() => {
+                        setShowAddServiceModal(false);
+                        setPrefillServiceData(null);
+                    }}
+                    onSuccess={handleServiceAddSuccess}
+                    prefillData={prefillServiceData}
+                />
+            )}
         </div>
     );
 };

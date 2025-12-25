@@ -84,7 +84,7 @@ const FAQ_DATA = [
     questions: [
       {
         q: 'How do I schedule a work order reminder?',
-        a: 'When creating or editing a work order, enable the "Schedule" toggle and select your preferred date and time. You\'ll receive push notifications at the scheduled time and 30 minutes before.'
+        a: 'When creating or editing a work order, enable the "Schedule" toggle and select your preferred date and time. You\'ll receive a push notification at the scheduled time.'
       },
       {
         q: 'Why am I not receiving work order notifications?',
@@ -267,16 +267,21 @@ const HelpSupport = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="bg-white sticky top-0 z-10 shadow-sm px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate('/settings')}>
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-        <h1 className="text-xl font-bold">Help & Support</h1>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header with Back Arrow */}
+      <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50 safe-area-top">
+        <div className="px-4 py-3 flex items-center gap-3">
+          <button
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6 text-gray-700" />
+          </button>
+          <h1 className="text-lg font-semibold text-gray-800">Help & Support</h1>
+        </div>
+      </header>
 
-      <div className="p-4 max-w-2xl mx-auto">
+      <div className="pt-28 px-4 max-w-2xl mx-auto pb-20">
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* User Information (Read-only) */}

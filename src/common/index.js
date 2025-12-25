@@ -47,6 +47,14 @@ const SummaryApi = {
         url: `${backendDomain}/api/business-profile`,
         method: "put"
     },
+    verifyPassword: {
+        url: `${backendDomain}/api/user/verify-password`,
+        method: "post"
+    },
+    deleteAccount: {
+        url: `${backendDomain}/api/user/delete-account`,
+        method: "delete"
+    },
 
     // Health Check
     healthCheck: {
@@ -229,6 +237,12 @@ const SummaryApi = {
     // ==================== DASHBOARD ====================
     getDashboardMetrics: {
         url: `${backendDomain}/api/dashboard/metrics`,
+        method: "get"
+    },
+
+    // ==================== SYNC ====================
+    syncHasData: {
+        url: `${backendDomain}/api/sync/has-data`,
         method: "get"
     },
 

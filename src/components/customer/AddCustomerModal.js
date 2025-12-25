@@ -9,6 +9,7 @@ import { Capacitor } from '@capacitor/core';
 const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
+    const [loadingContactPhone, setLoadingContactPhone] = useState(null); // Track which specific contact is loading
     const { notifyLocalSave } = useSync();
     const [contactPickerSupported, setContactPickerSupported] = useState(false);
     const [mode, setMode] = useState('contacts'); // 'contacts' or 'manual'
@@ -69,6 +70,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
             setSameAsPhone(false);
             setContactSearch('');
             setContactsList([]);
+            setLoadingContactPhone(null); // Reset loading contact
 
             // Auto-fetch contacts if supported
             if (contactPickerSupported) {
@@ -122,7 +124,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                             .find(Boolean) || '';
                         return { name: name || '', phone };
                     })
-                    .filter(c => c.name || c.phone)
+                    .filter(c => c.name && c.phone)
                     .sort((a, b) => (a.name || '').localeCompare(b.name || '')); // Sort A-Z
 
                 setContactsList(list);
@@ -143,7 +145,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                         const phone = c.tel?.[0] || '';
                         return { name: name || '', phone };
                     })
-                    .filter(c => c.name || c.phone)
+                    .filter(c => c.name && c.phone)
                     .sort((a, b) => (a.name || '').localeCompare(b.name || '')); // Sort A-Z
 
                     setContactsList(list);
@@ -168,7 +170,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
             return;
         }
 
-        setLoading(true);
+        setLoadingContactPhone(contact.phone); // Set specific contact as loading
 
         try {
             // Create customer directly
@@ -220,7 +222,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
             console.error('Add customer from contact error:', error);
             alert('Failed to add customer. Please try again.');
         } finally {
-            setLoading(false);
+            setLoadingContactPhone(null); // Clear specific contact loading
         }
     };
 
@@ -387,36 +389,42 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
                                         const query = contactSearch.toLowerCase();
                                         return (c.name?.toLowerCase().includes(query) || c.phone?.includes(query));
                                     })
-                                    .map((c, idx) => (
-                                        <button
-                                            key={`${c.name}-${c.phone}-${idx}`}
-                                            onClick={() => handleContactSelect(c)}
-                                            disabled={loading}
-                                            className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                                        >
-                                            {/* Avatar Circle */}
-                                            <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                                <span className="text-primary-600 font-bold text-lg">
-                                                    {c.name?.charAt(0).toUpperCase() || 'C'}
-                                                </span>
-                                            </div>
+                                    .map((c, idx) => {
+                                        const isThisContactLoading = loadingContactPhone === c.phone;
+                                        const isAnyContactLoading = loadingContactPhone !== null;
 
-                                            {/* Contact Details */}
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-semibold text-gray-800 truncate">
-                                                    {c.name || 'Unnamed'}
-                                                </p>
-                                                <p className="text-sm text-gray-500">{c.phone}</p>
-                                            </div>
+                                        return (
+                                            <button
+                                                key={`${c.name}-${c.phone}-${idx}`}
+                                                onClick={() => handleContactSelect(c)}
+                                                disabled={isAnyContactLoading}
+                                                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed"
+                                                style={{ opacity: isAnyContactLoading && !isThisContactLoading ? 0.5 : 1 }}
+                                            >
+                                                {/* Avatar Circle */}
+                                                <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                                    <span className="text-primary-600 font-bold text-lg">
+                                                        {c.name?.charAt(0).toUpperCase() || 'C'}
+                                                    </span>
+                                                </div>
 
-                                            {/* Chevron or Loading */}
-                                            {loading ? (
-                                                <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
-                                            ) : (
-                                                <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                                            )}
-                                        </button>
-                                    ))}
+                                                {/* Contact Details */}
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-semibold text-gray-800 truncate">
+                                                        {c.name || 'Unnamed'}
+                                                    </p>
+                                                    <p className="text-sm text-gray-500">{c.phone}</p>
+                                                </div>
+
+                                                {/* Chevron or Loading */}
+                                                {isThisContactLoading ? (
+                                                    <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin flex-shrink-0"></div>
+                                                ) : (
+                                                    <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
                             </div>
                         )}
                     </div>

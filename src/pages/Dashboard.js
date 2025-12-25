@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getDashboardMetricsDao } from '../storage/dao/dashboardMetricsDao';
 import { pullDashboardMetrics, buildKey } from '../storage/sync/dashboardMetricsSync';
 
 const Dashboard = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [metrics, setMetrics] = useState(null);
     const [staleMessage, setStaleMessage] = useState('');
+    const refreshKey = location.state?.refreshKey;
 
     useEffect(() => {
         const load = async () => {
@@ -39,6 +41,37 @@ const Dashboard = () => {
         };
         load();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!refreshKey) return;
+        const refresh = async () => {
+            try {
+                const dao = await getDashboardMetricsDao();
+                const key = buildKey('period', '1month');
+                const cached = await dao.getByKey(key);
+                if (cached?.payload) {
+                    try {
+                        setMetrics(JSON.parse(cached.payload));
+                    } catch (e) {
+                        console.error('Parse dashboard cache failed', e);
+                    }
+                }
+                await pullDashboardMetrics({ filterType: 'period', period: '1month' });
+                const refreshed = await dao.getByKey(key);
+                if (refreshed?.payload) {
+                    setMetrics(JSON.parse(refreshed.payload));
+                }
+                setStaleMessage('');
+            } catch (err) {
+                console.error('Dashboard metrics refresh error', err);
+                if (metrics) {
+                    setStaleMessage('Showing cached dashboard data. Latest refresh failed.');
+                }
+            }
+        };
+        refresh();
+        window.scrollTo(0, 0);
+    }, [refreshKey, metrics]);
 
     const handleLogout = async () => {
         setIsLoggingOut(true);

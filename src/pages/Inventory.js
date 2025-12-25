@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { FixedSizeList } from 'react-window';
 import Layout, { useLayoutContext } from '../components/Layout';
 import AddItemModal from '../components/inventory/AddItemModal';
@@ -254,6 +255,7 @@ const ServicesContent = ({
 };
 
 const Inventory = ({ initialTab = 'products' }) => {
+    const location = useLocation();
     const [activeTab, setActiveTab] = useState(initialTab === 'services' ? 'services' : 'products');
     const [touchStartX, setTouchStartX] = useState(null);
     const [touchStartY, setTouchStartY] = useState(null);
@@ -274,6 +276,7 @@ const Inventory = ({ initialTab = 'products' }) => {
     const [servicesLoading, setServicesLoading] = useState(true);
     const [loadingMoreServices, setLoadingMoreServices] = useState(false);
     const servicesListRef = useRef(null);
+    const refreshKey = location.state?.refreshKey;
 
     // Modal states
     const [showItemModal, setShowItemModal] = useState(false);
@@ -569,6 +572,33 @@ const Inventory = ({ initialTab = 'products' }) => {
             servicesListRef.current.scrollToItem(0);
         }
     }, [debouncedServiceSearch]);
+
+    useEffect(() => {
+        if (!refreshKey) return;
+        const refresh = async () => {
+            setLoading(true);
+            setServicesLoading(true);
+            try {
+                await Promise.all([
+                    loadItemsFromLocal(1, true, { showSkeleton: true }),
+                    loadServicesFromLocal(1, true, { showSkeleton: true })
+                ]);
+                pullInventory().then(async () => {
+                    await Promise.all([
+                        loadItemsFromLocal(1, true, { showSkeleton: false }),
+                        loadServicesFromLocal(1, true, { showSkeleton: false })
+                    ]);
+                }).catch(() => {});
+            } finally {
+                setLoading(false);
+                setServicesLoading(false);
+            }
+        };
+        refresh();
+        itemsListRef.current?.scrollToItem(0);
+        servicesListRef.current?.scrollToItem(0);
+        window.scrollTo(0, 0);
+    }, [refreshKey]);
 
     const handleItemsRendered = useCallback(({ visibleStopIndex }) => {
         if (!debouncedProductSearch && !loadingMoreItems && itemsHasMore) {

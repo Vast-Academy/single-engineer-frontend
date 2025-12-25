@@ -56,7 +56,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     const [sharingBill, setSharingBill] = useState(false);
     const [viewingBill, setViewingBill] = useState(false);
 
-    const { notifyLocalSave, bumpDataVersion } = useSync();
+    const { notifyLocalSave, bumpDataVersion, isOnline } = useSync();
     const { user } = useAuth();
 
     // Calculate totals
@@ -264,37 +264,56 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             return;
         }
 
+        if (!isOnline) {
+            alert('Go online to update this work order.');
+            return;
+        }
+
+        const hasServerId = workOrder._id && !workOrder._id.startsWith('client-');
+        if (!hasServerId) {
+            alert('Please wait for sync before editing this work order.');
+            return;
+        }
+
         setLoading(true);
         try {
-            const dao = await getWorkOrdersDao();
-            await dao.markPendingUpdate(workOrder._id, {
-                note: editData.note,
-                schedule_date: editData.scheduleDate,
-                has_scheduled_time: editData.hasScheduledTime,
-                schedule_time: editData.hasScheduledTime ? editData.scheduleTime : '',
-                status: workOrder.status
-            });
-
-            const updatedLocal = {
-                ...workOrder,
+            const payload = {
                 note: editData.note,
                 scheduleDate: editData.scheduleDate,
                 hasScheduledTime: editData.hasScheduledTime,
-                scheduleTime: editData.hasScheduledTime ? editData.scheduleTime : '',
-                pendingSync: true
+                scheduleTime: editData.hasScheduledTime ? editData.scheduleTime : ''
+            };
+
+            const response = await apiClient(`${SummaryApi.updateWorkOrder.url}/${workOrder._id}`, {
+                method: SummaryApi.updateWorkOrder.method,
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!data.success || !data.workOrder) {
+                throw new Error(data.message || 'Failed to update work order');
+            }
+
+            const dao = await getWorkOrdersDao();
+            await dao.upsertMany([data.workOrder]);
+
+            const updatedLocal = {
+                ...workOrder,
+                note: data.workOrder.note || editData.note,
+                scheduleDate: data.workOrder.scheduleDate || editData.scheduleDate,
+                hasScheduledTime: data.workOrder.hasScheduledTime ?? editData.hasScheduledTime,
+                scheduleTime: data.workOrder.scheduleTime ?? (editData.hasScheduledTime ? editData.scheduleTime : ''),
+                pendingSync: false
             };
 
             if (onUpdate) {
                 onUpdate(updatedLocal);
             }
             setIsEditingWorkOrder(false);
-            alert('Work order saved locally. Syncing...');
             notifyLocalSave();
             bumpDataVersion();
-            pushWorkOrders().catch(() => {});
         } catch (error) {
             console.error('Update work order error:', error);
-            alert('Failed to update work order');
+            alert(error.message || 'Failed to update work order');
         } finally {
             setLoading(false);
         }
@@ -305,12 +324,25 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
         if (!workOrder) return;
         const hasServerId = workOrder._id && !workOrder._id.startsWith('client-');
 
+        if (!isOnline) {
+            alert('Go online to delete this work order.');
+            return;
+        }
+
         setLoading(true);
         try {
             if (!hasServerId) {
                 alert('Please wait for sync before deleting this work order.');
                 setLoading(false);
                 return;
+            }
+
+            const response = await apiClient(`${SummaryApi.deleteWorkOrder.url}/${workOrder._id}`, {
+                method: SummaryApi.deleteWorkOrder.method
+            });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to delete work order');
             }
 
             const dao = await getWorkOrdersDao();
@@ -320,11 +352,10 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
             }
             notifyLocalSave();
             bumpDataVersion();
-            pushWorkOrders().catch(() => {});
             onClose();
         } catch (error) {
             console.error('Delete error:', error);
-            alert('Failed to delete work order');
+            alert(error.message || 'Failed to delete work order');
         } finally {
             setLoading(false);
         }
@@ -378,31 +409,54 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
 
     // Handle done
     const handleDone = async () => {
-        // Update parent with completed work order when user clicks Done
-        if (onUpdate && createdBill) {
-            const completedAt = new Date();
+        if (!createdBill) {
+            onClose();
+            return;
+        }
+
+        if (!isOnline) {
+            alert('Go online to complete this work order.');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await apiClient(SummaryApi.linkWorkOrderBill.url, {
+                method: SummaryApi.linkWorkOrderBill.method,
+                body: JSON.stringify({
+                    workOrderId: workOrder._id,
+                    billId: createdBill._id
+                })
+            });
+            const data = await response.json();
+
+            if (!data.success || !data.workOrder) {
+                throw new Error(data.message || 'Failed to complete work order');
+            }
+
             const updated = {
                 ...workOrder,
-                status: 'completed',
+                status: data.workOrder.status || 'completed',
                 billId: createdBill._id,
-                completedAt,
-                pendingSync: true
+                completedAt: data.workOrder.completedAt || data.workOrder.completed_at || new Date(),
+                pendingSync: false
             };
-            onUpdate(updated);
-            try {
-                const dao = await getWorkOrdersDao();
-                await dao.markPendingUpdate(workOrder._id, {
-                    status: 'completed',
-                    bill_id: createdBill._id,
-                    completed_at: completedAt.toISOString()
-                });
-                notifyLocalSave();
-                bumpDataVersion();
-                pushWorkOrders().catch(() => {});
-            } catch (err) {
-                console.error('Mark complete (local) error:', err);
+
+            if (onUpdate) {
+                onUpdate(updated);
             }
+
+            const dao = await getWorkOrdersDao();
+            await dao.upsertMany([data.workOrder]);
+            bumpDataVersion();
+        } catch (err) {
+            console.error('Mark complete (server) error:', err);
+            alert(err.message || 'Failed to complete work order');
+            return;
+        } finally {
+            setLoading(false);
         }
+
         onClose();
     };
 
@@ -504,7 +558,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     if (currentStep === STEPS.SUCCESS) {
         return (
             <div
-                className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+                className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center pt-4 sm:pt-0"
                 style={{ paddingBottom: overlayBottomPadding }}
             >
                 <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell">
@@ -597,7 +651,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     if (isCompleted) {
         return (
                 <div
-                    className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+                className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center pt-4 sm:pt-0"
                     style={{ paddingBottom: overlayBottomPadding }}
                     onClick={(e) => {
                         if (e.target === e.currentTarget) {
@@ -606,7 +660,7 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                     }}>
                 <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl overflow-hidden flex flex-col modal-shell">
                     {/* Header */}
-                    <div className="p-4 bg-gradient-to-r from-green-500 to-green-600">
+                    <div className="p-4 bg-gradient-to-r from-green-500 to-green-600 safe-area-top">
                         <div className="flex items-center justify-between mb-3">
                             <span className="text-white/80 text-sm font-medium">Work Order Details</span>
                             <button
@@ -692,13 +746,13 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
     return (
         <>
         <div
-            className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center pt-4 sm:pt-0"
             style={{ paddingBottom: overlayBottomPadding }}
             onClick={handleOverlayClick}
         >
-            <div className="bg-white w-full h-full sm:max-w-lg sm:h-[90vh] sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden shadow-xl">
+            <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl flex flex-col overflow-hidden shadow-xl modal-shell">
                 {/* Header */}
-                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0">
+                <div className="flex items-center gap-3 p-4 border-b flex-shrink-0 safe-area-top">
                     {currentStep !== STEPS.WORK_NOTE_INVENTORY && (
                         <button
                             onClick={handleBack}
@@ -724,51 +778,51 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                     </button>
                 </div>
 
-                {/* Step 1: Work Note + Inventory */}
-                {currentStep === STEPS.WORK_NOTE_INVENTORY && !isEditingWorkOrder && (
-                    <>
-                        {/* Customer Info Header - Compact */}
-                        <div className="px-4 py-3 bg-gradient-to-r from-primary-50 to-blue-50 border-b flex-shrink-0">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                    <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <span className="text-white font-bold text-sm">
-                                            {workOrder.customer?.customerName?.charAt(0).toUpperCase()}
-                                        </span>
+                <div className="modal-body">
+                    {/* Step 1: Work Note + Inventory */}
+                    {currentStep === STEPS.WORK_NOTE_INVENTORY && !isEditingWorkOrder && (
+                        <>
+                            {/* Customer Info Header - Compact */}
+                            <div className="px-4 py-3 bg-gradient-to-r from-primary-50 to-blue-50 border-b flex-shrink-0">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                                        <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                            <span className="text-white font-bold text-sm">
+                                                {workOrder.customer?.customerName?.charAt(0).toUpperCase()}
+                                            </span>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-semibold text-gray-900 truncate">{workOrder.customer?.customerName}</p>
+                                            <p className="text-xs text-gray-600">{workOrder.customer?.phoneNumber}</p>
+                                        </div>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-semibold text-gray-900 truncate">{workOrder.customer?.customerName}</p>
-                                        <p className="text-xs text-gray-600">{workOrder.customer?.phoneNumber}</p>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        <button
+                                            onClick={() => setIsEditingWorkOrder(true)}
+                                            className="px-3 py-1.5 bg-white border border-primary-200 text-primary-600 rounded-lg flex items-center gap-1.5 hover:bg-primary-50 text-xs font-medium shadow-sm"
+                                        >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                            Edit
+                                        </button>
+                                        <button
+                                            onClick={handleCall}
+                                            className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center hover:bg-green-600 shadow-sm"
+                                        >
+                                            <Phone className="w-4 h-4 text-white" />
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                    <button
-                                        onClick={() => setIsEditingWorkOrder(true)}
-                                        className="px-3 py-1.5 bg-white border border-primary-200 text-primary-600 rounded-lg flex items-center gap-1.5 hover:bg-primary-50 text-xs font-medium shadow-sm"
-                                    >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                        Edit
-                                    </button>
-                                    <button
-                                        onClick={handleCall}
-                                        className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center hover:bg-green-600 shadow-sm"
-                                    >
-                                        <Phone className="w-4 h-4 text-white" />
-                                    </button>
+                            </div>
+
+                            {/* Work Details - Compact */}
+                            <div className="px-4 py-2 bg-white border-b flex-shrink-0">
+                                <div className="flex items-start gap-2">
+                                    <FileText className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                    <p className="text-xs text-gray-700 line-clamp-2 flex-1">{workOrder.note}</p>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Work Details - Compact */}
-                        <div className="px-4 py-2 bg-white border-b flex-shrink-0">
-                            <div className="flex items-start gap-2">
-                                <FileText className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <p className="text-xs text-gray-700 line-clamp-2 flex-1">{workOrder.note}</p>
-                            </div>
-                        </div>
-
-                        {/* Inventory Selection - Takes remaining space */}
-                        <div className="flex-1 overflow-hidden">
+                            {/* Inventory Selection */}
                             <ItemSelectionStep
                                 customer={workOrder.customer}
                                 items={items}
@@ -780,14 +834,13 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                                 onContinue={handleNext}
                                 hideCustomerInfo={true}
                             />
-                        </div>
-                    </>
-                )}
+                        </>
+                    )}
 
-                {/* Edit Mode */}
-                {currentStep === STEPS.WORK_NOTE_INVENTORY && isEditingWorkOrder && (
-                    <div className="p-4 modal-body">
-                        <div className="space-y-4">
+                    {/* Edit Mode */}
+                    {currentStep === STEPS.WORK_NOTE_INVENTORY && isEditingWorkOrder && (
+                        <div className="p-4">
+                            <div className="space-y-4">
                             {/* Customer Info - Read Only */}
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
                                 <div className="flex items-center gap-3">
@@ -887,9 +940,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                     </div>
                 )}
 
-                {/* Step 2: Bill Summary */}
-                {currentStep === STEPS.BILL_SUMMARY && (
-                    <div className="flex-1 overflow-hidden">
+                    {/* Step 2: Bill Summary */}
+                    {currentStep === STEPS.BILL_SUMMARY && (
                         <BillSummaryStep
                             selectedItems={selectedItems}
                             subtotal={subtotal}
@@ -899,12 +951,10 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             onRemoveItem={handleRemoveItem}
                             onContinue={handleNext}
                         />
-                    </div>
-                )}
+                    )}
 
-                {/* Step 3: Payment */}
-                {currentStep === STEPS.PAYMENT && (
-                    <div className="flex-1 overflow-hidden">
+                    {/* Step 3: Payment */}
+                    {currentStep === STEPS.PAYMENT && (
                         <PaymentStep
                             totalAmount={totalAmount}
                             paymentMethod={paymentMethod}
@@ -919,12 +969,10 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             transactionId={transactionId}
                             onTransactionIdChange={setTransactionId}
                         />
-                    </div>
-                )}
+                    )}
 
-                {/* Step 4: Confirmation */}
-                {currentStep === STEPS.CONFIRMATION && (
-                    <div className="flex-1 overflow-hidden">
+                    {/* Step 4: Confirmation */}
+                    {currentStep === STEPS.CONFIRMATION && (
                         <ConfirmationStep
                             customer={workOrder.customer}
                             selectedItems={selectedItems}
@@ -938,8 +986,8 @@ const WorkOrderDetailModal = ({ isOpen, onClose, workOrder, onUpdate, onDelete }
                             onConfirm={handleCreateBill}
                             transactionId={transactionId}
                         />
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
         </>

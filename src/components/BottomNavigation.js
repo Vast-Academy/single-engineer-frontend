@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useSync } from '../context/SyncContext';
 
 const BottomNavigation = () => {
     const location = useLocation();
+    const navigate = useNavigate();
     const { bumpDataVersion, dataVersion } = useSync();
     const [pendingWorkCount, setPendingWorkCount] = useState(0);
 
@@ -82,6 +83,7 @@ const BottomNavigation = () => {
     const handleTabClick = (e, path) => {
         if (location.pathname === path) {
             e.preventDefault();
+            navigate(path, { replace: true, state: { refreshKey: Date.now() } });
             bumpDataVersion();
         }
     };

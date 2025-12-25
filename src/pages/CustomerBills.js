@@ -124,6 +124,7 @@ const CustomerBills = () => {
                     paymentMethod: b.payment_method,
                     status: b.status,
                     createdAt: b.created_at,
+                    workOrderId: b.work_order_id,
                     pendingSync: b.pending_sync === 1,
                     syncError: b.sync_error || null,
                     items: (items || []).map(it => ({

@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
 import { FixedSizeList } from 'react-window';
 import Layout, { useLayoutContext } from '../components/Layout';
@@ -148,6 +148,7 @@ const CustomersContent = ({
 
 const Customers = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -159,6 +160,7 @@ const Customers = () => {
     const listRef = useRef(null);
     const { dataVersion } = useSync();
     const pendingCountVersion = useRef(0);
+    const refreshKey = location.state?.refreshKey;
 
     // Debounce search query for better performance
     const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -286,6 +288,31 @@ const Customers = () => {
         fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true, showSkeleton: false });
     }, [debouncedSearchQuery]);
 
+    useEffect(() => {
+        if (!refreshKey) return;
+        const refresh = async () => {
+            setLoading(true);
+            try {
+                await ensureCustomersPulled();
+                await fetchCustomersFromLocal(1, true, debouncedSearchQuery, { showSkeleton: true });
+                setBackgroundRefresh(true);
+                pullCustomersFromBackend()
+                    .then(() => fetchCustomersFromLocal(1, true, debouncedSearchQuery, { silent: true, showSkeleton: false }))
+                    .catch(() => {})
+                    .finally(() => setBackgroundRefresh(false));
+            } catch (err) {
+                console.error('Customers refresh error:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        refresh();
+        if (listRef.current) {
+            listRef.current.scrollToItem(0);
+        }
+        window.scrollTo(0, 0);
+    }, [refreshKey, debouncedSearchQuery]);
+
     const filteredCustomers = customers; // already filtered at query time
 
     // Load more items when scrolling (fetch next page from local)
@@ -354,6 +381,5 @@ const Customers = () => {
 };
 
 export default Customers;
-
 
 

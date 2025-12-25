@@ -1,7 +1,10 @@
 import { jsPDF } from 'jspdf';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+
+const MediaStoreSaver = registerPlugin('MediaStoreSaver');
+const FileViewer = registerPlugin('FileViewer');
 
 const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -37,7 +40,60 @@ const normalizeBill = (bill) => {
 const buildShareText = (bill, customer) => {
     const total = bill.totalAmount || 0;
     const due = bill.dueAmount || 0;
-    return `Invoice ${bill.billNumber} - ${customer?.customerName || 'Customer'}\nTotal: Rs ${total}${due > 0 ? `\nDue: Rs ${due}` : '\nFully Paid'}`;
+    return `Invoice ${bill.billNumber} — ${customer?.customerName || 'Customer'}\nTotal: Rs ${total}${due > 0 ? `\nBalance Due: Rs ${due}` : '\nPaid in Full'}\nGenerated with WorkOPS\nDeveloped by Merasoftware.com`;
+};
+
+const isAndroid = () => Capacitor.getPlatform() === 'android';
+
+const ensurePublicStoragePermission = async () => {
+    if (!isAndroid()) return true;
+    try {
+        const status = await Filesystem.checkPermissions();
+        if (status.publicStorage === 'granted') return true;
+        const req = await Filesystem.requestPermissions();
+        return req.publicStorage === 'granted';
+    } catch (error) {
+        console.warn('Filesystem permission check failed:', error?.message || error);
+        return false;
+    }
+};
+
+const writeBase64File = async ({ directory, path, base64 }) => {
+    await Filesystem.writeFile({
+        path,
+        data: base64,
+        directory,
+        recursive: true
+    });
+    const uriResult = await Filesystem.getUri({ directory, path });
+    return uriResult?.uri;
+};
+
+const addWatermark = (doc, { title, subline, footerUrl }) => {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const centerX = pageWidth / 2;
+    const centerY = pageHeight / 2;
+
+    doc.setTextColor(235, 235, 235);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(48);
+    doc.text(title, centerX, centerY, { align: 'center', angle: 30 });
+
+    if (subline) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(14);
+        doc.setTextColor(220, 220, 220);
+        doc.text(subline, centerX, centerY + 12, { align: 'center', angle: 30 });
+    }
+
+    if (footerUrl) {
+        doc.setFontSize(9);
+        doc.setTextColor(160, 160, 160);
+        doc.text(footerUrl, centerX, pageHeight - 10, { align: 'center' });
+    }
+
+    doc.setTextColor(0, 0, 0);
 };
 
 export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
@@ -45,6 +101,13 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
     const doc = new jsPDF();
     const items = normalized.items || [];
     let yPos = 20;
+    const watermarkConfig = {
+        title: 'WorkOPS',
+        subline: '',
+        footerUrl: 'Developed by merasoftware.com'
+    };
+
+    addWatermark(doc, watermarkConfig);
 
     // Header - Business Details
     if (businessProfile && businessProfile.isComplete) {
@@ -61,8 +124,8 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
         doc.text(addressLine, 105, yPos, { align: 'center' });
         yPos += 5;
 
-        // Phone Number
-        if (businessProfile.phone) {
+        // Phone Number (conditional - check hidePhoneOnBills flag)
+        if (businessProfile.phone && !businessProfile.hidePhoneOnBills) {
             doc.text(`Phone: ${businessProfile.phone}`, 105, yPos, { align: 'center' });
             yPos += 5;
         }
@@ -76,10 +139,6 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
         yPos += 10;
     }
 
-    // TAX INVOICE Title
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'normal');
-    doc.text('TAX INVOICE', 105, yPos, { align: 'center' });
 
     // Horizontal line
     yPos += 5;
@@ -140,6 +199,7 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
         // Check if we need a new page
         if (yPos > 270) {
             doc.addPage();
+            addWatermark(doc, watermarkConfig);
             yPos = 20;
         }
 
@@ -151,8 +211,8 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
         doc.text(splitText, 35, yPos);
 
         doc.text(`${item.qty}`, 120, yPos, { align: 'center' });
-        doc.text(`?${item.price}`, 145, yPos, { align: 'right' });
-        doc.text(`?${item.amount}`, 180, yPos, { align: 'right' });
+        doc.text(`INR ${item.price}`, 145, yPos, { align: 'right' });
+        doc.text(`INR ${item.amount}`, 180, yPos, { align: 'right' });
 
         yPos += 6 * splitText.length;
 
@@ -171,13 +231,13 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
     // Subtotal
     doc.setFont('helvetica', 'normal');
     doc.text('Subtotal:', totalsX, yPos);
-    doc.text(`?${normalized.subtotal}`, 180, yPos, { align: 'right' });
+    doc.text(`INR ${normalized.subtotal}`, 180, yPos, { align: 'right' });
     yPos += 6;
 
     // Discount if any
     if (normalized.discount > 0) {
         doc.text('Discount:', totalsX, yPos);
-        doc.text(`-?${normalized.discount}`, 180, yPos, { align: 'right' });
+        doc.text(`-INR ${normalized.discount}`, 180, yPos, { align: 'right' });
         yPos += 6;
     }
 
@@ -190,23 +250,21 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Total:', totalsX, yPos);
-    doc.text(`?${normalized.totalAmount}`, 180, yPos, { align: 'right' });
+    doc.text(`INR ${normalized.totalAmount}`, 180, yPos, { align: 'right' });
     yPos += 8;
 
     // Paid
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0, 150, 0); // Green
     doc.text('Paid:', totalsX, yPos);
-    doc.text(`?${normalized.receivedPayment}`, 180, yPos, { align: 'right' });
+    doc.text(`INR ${normalized.receivedPayment}`, 180, yPos, { align: 'right' });
     yPos += 6;
 
     // Due if any
     if (normalized.dueAmount > 0) {
-        doc.setTextColor(220, 38, 38); // Red
         doc.setFont('helvetica', 'bold');
         doc.text('Balance Due:', totalsX, yPos);
-        doc.text(`?${normalized.dueAmount}`, 180, yPos, { align: 'right' });
+        doc.text(`INR ${normalized.dueAmount}`, 180, yPos, { align: 'right' });
     }
 
     // Reset text color
@@ -235,7 +293,7 @@ export const generateBillPdfDoc = ({ bill, customer, businessProfile }) => {
     // Footer
     doc.setFontSize(10);
     doc.setFont('helvetica', 'italic');
-    doc.text('Thank you for your business!', 105, 280, { align: 'center' });
+    doc.text('Thank you for choosing WorkOPS', 105, 280, { align: 'center' });
 
     return doc;
 };
@@ -256,17 +314,49 @@ const blobToBase64 = async (blob) => {
     return btoa(binary);
 };
 
-export const savePdfNative = async ({ bill, customer, businessProfile, fileName }) => {
+const buildPdfBase64 = async ({ bill, customer, businessProfile }) => {
     const blob = buildPdfBlob({ bill, customer, businessProfile });
-    const base64 = await blobToBase64(blob);
+    return blobToBase64(blob);
+};
 
-    const result = await Filesystem.writeFile({
-        path: fileName,
-        data: base64,
-        directory: Directory.Documents
-    });
+const savePdfForShareNative = async ({ bill, customer, businessProfile, fileName }) => {
+    const base64 = await buildPdfBase64({ bill, customer, businessProfile });
+    const path = `share/${fileName}`;
+    return writeBase64File({ directory: Directory.Cache, path, base64 });
+};
 
-    return result?.uri;
+const savePdfForDownloadNative = async ({ bill, customer, businessProfile, fileName }) => {
+    const base64 = await buildPdfBase64({ bill, customer, businessProfile });
+    const hasPermission = await ensurePublicStoragePermission();
+    const path = fileName;
+
+    if (isAndroid()) {
+        try {
+            const result = await MediaStoreSaver.saveToDownloads({
+                base64,
+                fileName,
+                mimeType: 'application/pdf'
+            });
+            return {
+                uri: result?.uri,
+                directory: 'downloads',
+                isPublic: true
+            };
+        } catch (error) {
+            console.warn('MediaStore save failed, falling back:', error?.message || error);
+        }
+    }
+
+    const preferredDir = hasPermission ? Directory.Documents : Directory.Data;
+    try {
+        const uri = await writeBase64File({ directory: preferredDir, path, base64 });
+        return { uri, directory: preferredDir, isPublic: preferredDir === Directory.Documents };
+    } catch (error) {
+        console.warn('Public save failed, falling back to app storage:', error?.message || error);
+        const fallbackDir = Directory.Data;
+        const uri = await writeBase64File({ directory: fallbackDir, path, base64 });
+        return { uri, directory: fallbackDir, isPublic: false };
+    }
 };
 
 export const downloadBillPdf = async ({ bill, customer, businessProfile, onSaved } = {}) => {
@@ -274,11 +364,12 @@ export const downloadBillPdf = async ({ bill, customer, businessProfile, onSaved
     const fileName = `Invoice-${normalized.billNumber || 'invoice'}.pdf`;
 
     if (Capacitor.isNativePlatform()) {
-        const uri = await savePdfNative({ bill, customer, businessProfile, fileName });
+        const { uri, isPublic } = await savePdfForDownloadNative({ bill, customer, businessProfile, fileName });
         if (onSaved) {
             onSaved(uri, fileName);
         } else {
-            alert(`PDF saved to device storage: ${uri || fileName}`);
+            const locationNote = isPublic ? 'Saved to Documents folder.' : 'Saved inside the app storage.';
+            alert(`PDF saved to device storage: ${uri || fileName}\n${locationNote}`);
         }
         return;
     }
@@ -293,11 +384,10 @@ export const shareBillPdf = async ({ bill, customer, businessProfile } = {}) => 
     const shareText = buildShareText(normalized, customer);
 
     if (Capacitor.isNativePlatform()) {
-        const uri = await savePdfNative({ bill, customer, businessProfile, fileName });
+        const uri = await savePdfForShareNative({ bill, customer, businessProfile, fileName });
         await Share.share({
             title: `Invoice - ${normalized.billNumber}`,
             text: shareText,
-            url: uri,
             files: uri ? [uri] : undefined,
             dialogTitle: 'Share Invoice PDF'
         });
@@ -332,16 +422,19 @@ export const viewBillPdf = async ({ bill, customer, businessProfile } = {}) => {
     const fileName = `Invoice-${normalized.billNumber || 'invoice'}.pdf`;
 
     if (Capacitor.isNativePlatform()) {
-        const uri = await savePdfNative({ bill, customer, businessProfile, fileName });
-        if (uri) {
-            const opened = window.open(uri, '_system') || window.open(uri, '_blank');
-            if (!opened) {
-                alert(`PDF saved to device storage: ${uri || fileName}`);
+        try {
+            const uri = await savePdfForShareNative({ bill, customer, businessProfile, fileName });
+            if (!uri) {
+                alert('Unable to prepare the PDF for viewing.');
+                return;
             }
+            await FileViewer.open({ uri, mimeType: 'application/pdf' });
+            return;
+        } catch (error) {
+            console.error('Open PDF error:', error);
+            alert('Unable to open the PDF viewer right now.');
             return;
         }
-        alert('Unable to open the PDF viewer right now.');
-        return;
     }
 
     const blob = buildPdfBlob({ bill, customer, businessProfile });

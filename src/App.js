@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SyncProvider } from './context/SyncContext';
+import { NotificationProvider } from './context/NotificationContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -24,6 +25,9 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import logo from './images/logo.png';
 import useViewportCssVars from './hooks/useViewportCssVars';
 import { Preferences } from "@capacitor/preferences";
+import { resetLocalAppDataOnUpdate } from './storage/resetLocalAppDataOnUpdate';
+import SummaryApi from './common';
+import { apiClient } from './utils/apiClient';
 // import { useState } from 'react';
 
 /**
@@ -197,12 +201,39 @@ function InitialSyncGate({ children }) {
                     setInitialDone(true);
                     return;
                 }
-                setInitialNeeded(true);
-                setInitialDone(false);
                 if (!isOnline) {
+                    setInitialNeeded(true);
+                    setInitialDone(false);
                     setError('Cannot download data while offline. Reconnect to continue.');
                     return;
                 }
+
+                let serverHasData = true;
+                try {
+                    const response = await apiClient(SummaryApi.syncHasData.url, {
+                        method: SummaryApi.syncHasData.method
+                    });
+                    const data = await response.json();
+                    if (data.success && data.hasData === false) {
+                        setInitialNeeded(false);
+                        setInitialDone(true);
+                        return;
+                    }
+                    if (data.success) {
+                        serverHasData = !!data.hasData;
+                    }
+                } catch (err) {
+                    console.warn('Initial sync has-data check failed:', err);
+                }
+
+                if (!serverHasData) {
+                    setInitialNeeded(false);
+                    setInitialDone(true);
+                    return;
+                }
+
+                setInitialNeeded(true);
+                setInitialDone(false);
                 await startSync();
             } catch (err) {
                 console.error('Initial check failed:', err);
@@ -246,46 +277,56 @@ function InitialSyncGate({ children }) {
 }
 
 function App() {
-   useEffect(() => {
-    const checkVersionChange = async () => {
-        try {
-            const info = await CapApp.getInfo();
-            const currentVersionCode = String(info.build || "");
-            const currentVersionName = String(info.version || "");
+    const [updateResetDone, setUpdateResetDone] = useState(false);
 
-            const stored = await Preferences.get({ key: "workops_last_version_code" });
-            const lastVersionCode = stored.value;
+    useEffect(() => {
+        const checkVersionChange = async () => {
+            try {
+                if (isWeb()) {
+                    setUpdateResetDone(true);
+                    return;
+                }
 
-            console.log(
-                "WORKOPS DEBUG | version check |",
-                new Date().toISOString(),
-                "versionName:", currentVersionName,
-                "versionCode:", currentVersionCode,
-                "lastVersionCode:", lastVersionCode
-            );
+                const info = await CapApp.getInfo();
+                const currentVersionCode = String(info.build || "");
+                const currentVersionName = String(info.version || "");
 
-            const isFirstRun = !lastVersionCode;
-            const isUpdated = !!lastVersionCode && lastVersionCode !== currentVersionCode;
+                const stored = await Preferences.get({ key: "workops_last_version_code" });
+                const lastVersionCode = stored.value;
 
-            if (isFirstRun) {
-                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "first run");
-            } else if (isUpdated) {
-                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "updated");
-            } else {
-                console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "same version");
+                console.log(
+                    "WORKOPS DEBUG | version check |",
+                    new Date().toISOString(),
+                    "versionName:", currentVersionName,
+                    "versionCode:", currentVersionCode,
+                    "lastVersionCode:", lastVersionCode
+                );
+
+                const isFirstRun = !lastVersionCode;
+                const isUpdated = !!lastVersionCode && lastVersionCode !== currentVersionCode;
+
+                if (isFirstRun) {
+                    console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "first run");
+                } else if (isUpdated) {
+                    console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "updated");
+                    await resetLocalAppDataOnUpdate();
+                } else {
+                    console.log("WORKOPS DEBUG | version state |", new Date().toISOString(), "same version");
+                }
+
+                await Preferences.set({
+                    key: "workops_last_version_code",
+                    value: currentVersionCode
+                });
+            } catch (err) {
+                console.error("WORKOPS DEBUG | version check failed |", err);
+            } finally {
+                setUpdateResetDone(true);
             }
+        };
 
-            await Preferences.set({
-                key: "workops_last_version_code",
-                value: currentVersionCode
-            });
-        } catch (err) {
-            console.error("WORKOPS DEBUG | version check failed |", err);
-        }
-    };
-
-    checkVersionChange();
-}, []);
+        checkVersionChange();
+    }, []);
 
 
     useViewportCssVars();
@@ -296,6 +337,19 @@ function App() {
         return <WebBlockingMessage />;
     }
 
+    if (!updateResetDone) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-white text-gray-700 px-6 text-center">
+                <img
+                    src={logo}
+                    alt="App Logo"
+                    className="w-24 h-24 mx-auto mb-4 animate-pulse"
+                />
+                <p className="text-sm text-gray-500">Preparing app data...</p>
+            </div>
+        );
+    }
+
     // Android WebView: Load full app with all features
     console.log('✓ Running in Android WebView. Loading full app...');
 
@@ -303,6 +357,7 @@ function App() {
         <ErrorBoundary>
             <AuthProvider>
                 <SyncProvider>
+                    <NotificationProvider>
                     <Router>
                         <AndroidBackButtonHandler />
                         <Routes>
@@ -434,6 +489,7 @@ function App() {
                     />
                 </Routes>
             </Router>
+            </NotificationProvider>
             </SyncProvider>
         </AuthProvider>
         </ErrorBoundary>
@@ -441,3 +497,8 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
